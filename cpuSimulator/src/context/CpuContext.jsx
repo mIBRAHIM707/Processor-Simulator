@@ -1,6 +1,6 @@
 // src/context/CpuContext.jsx
 import React, { createContext, useReducer, useContext } from 'react';
-
+import { fetch, decode, execute } from '../logic/cpuCore'; // Import core logic functions
 // --- Define Initial CPU State ---
 const initialCpuState = {
   registers: {
@@ -27,57 +27,71 @@ const initialCpuState = {
 // --- Define the Reducer Function ---
 // This function handles state updates based on dispatched actions
 function cpuReducer(state, action) {
-  console.log("Reducer Action:", action); // Good for debugging
+  console.log("Reducer Action:", action);
   switch (action.type) {
     case 'RESET':
-      // Reset everything except maybe the log? Or clear log too?
+      // ... (same as before) ...
       return {
-         ...initialCpuState,
-         // Keep logs if desired: outputLog: state.outputLog
-         outputLog: ['CPU Reset.'], // Start with a reset message
+        ...initialCpuState,
+        outputLog: ['CPU Reset.'],
       };
 
-    case 'STEP':
-      // TODO: Implement the logic for a single instruction cycle
-      // 1. Fetch instruction at PC
-      // 2. Decode instruction
-      // 3. Execute instruction (updating registers, flags, memory, pc)
-      // 4. Update log
-      console.warn("STEP action not yet implemented!");
-      // For now, just add a log message
-      return {
-        ...state,
-        outputLog: [...state.outputLog, `STEP not implemented (PC: ${state.registers.pc})`]
-      };
+    case 'STEP': { // Use block scope for variables
+      if (state.isRunning) return state; // Don't step if auto-running (add later)
+      try {
+        const currentPC = state.registers.pc;
+        const instructionWord = fetch(state.memory, currentPC);
+        const decoded = decode(instructionWord);
 
-    case 'LOAD_CODE':
-      // TODO: Implement loading machine code into memory
-       console.warn("LOAD_CODE action not yet implemented!");
-      // action.payload should be an array of machine code words
-      // We need to copy them into state.memory
-       const newMemory = new Array(512).fill(0); // Start fresh
+        // Execute returns the *changes* or the *complete next state slices*
+        const updates = execute(decoded, state);
+
+        // Merge the updates into the new state
+        return {
+          ...state, // Keep other state parts like isRunning
+          registers: updates.registers,
+          flags: updates.flags,
+          memory: updates.memory, // Assume execute returned the full new memory array
+          // Update PC based on execute result (JMP might change it)
+          registers: { ...updates.registers, pc: updates.pc },
+          outputLog: [...state.outputLog, `[${currentPC.toString(16).padStart(3,'0')}] ${updates.log}`], // Add log message from execute
+        };
+      } catch (error) {
+        console.error("CPU Step Error:", error);
+        // Halt CPU or indicate error state?
+        return {
+          ...state,
+          isRunning: false, // Stop if running
+          outputLog: [...state.outputLog, `ERROR: ${error.message}`],
+        };
+      }
+    } // End STEP case block scope
+
+    case 'LOAD_CODE': { // Use block scope
+       // ... (existing code to copy payload to newMemory) ...
+       const newMemory = new Array(512).fill(0);
+       let loadedWords = 0;
        if (action.payload && Array.isArray(action.payload)) {
-         for(let i = 0; i < action.payload.length && i < newMemory.length; i++) {
-           newMemory[i] = action.payload[i];
+         loadedWords = action.payload.length;
+         for(let i = 0; i < loadedWords && i < newMemory.length; i++) {
+           // Ensure loaded values are valid numbers (e.g., handle NaN)
+           newMemory[i] = Number(action.payload[i]) || 0;
          }
        }
        return {
-         ...initialCpuState, // Reset state before loading
+         ...initialCpuState, // Reset everything else on load
          memory: newMemory,
-         outputLog: [`Code loaded into memory (${action.payload?.length || 0} words). CPU Reset.`]
+         outputLog: [`Code loaded (${loadedWords} words). CPU Reset.`]
        };
+     } // End LOAD_CODE block scope
 
     case 'UPDATE_LOG':
-       return {
-         ...state,
-         outputLog: [...state.outputLog, action.payload] // Add a message string
-       }
-
-    // Add more actions later: RUN, STOP, SET_REGISTER, etc.
+       // ... (same as before) ...
+       return { ...state, outputLog: [...state.outputLog, action.payload] }
 
     default:
       console.error(`Unhandled action type: ${action.type}`);
-      return state; // Return current state if action is unknown
+      return state;
   }
 }
 
