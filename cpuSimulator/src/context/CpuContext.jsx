@@ -29,39 +29,31 @@ const initialCpuState = {
 function cpuReducer(state, action) {
   console.log("Reducer Action:", action);
   switch (action.type) {
-    case 'RESET':
-      // ... (same as before) ...
-      return {
-        ...initialCpuState,
-        outputLog: ['CPU Reset.'],
-      };
+    // ... (RESET, START_RUN, STOP_RUN cases) ...
 
-    case 'STEP': { // Use block scope for variables
-      if (state.isRunning) return state; // Don't step if auto-running (add later)
+    case 'STEP': {
+      if (state.isRunning) return state; // Safeguard
       try {
         const currentPC = state.registers.pc;
         const instructionWord = fetch(state.memory, currentPC);
         const decoded = decode(instructionWord);
+        const updates = execute(decoded, state); // execute returns { registers, flags, memory, pc, log }
 
-        // Execute returns the *changes* or the *complete next state slices*
-        const updates = execute(decoded, state);
-
-        // Merge the updates into the new state
+        // --- CORRECTED RETURN STATEMENT ---
         return {
-          ...state, // Keep other state parts like isRunning
-          registers: updates.registers,
+          ...state, // Keep parts of state not modified by execute (like isRunning)
+          registers: updates.registers, // Use the complete registers object from execute (includes updated pc)
           flags: updates.flags,
-          memory: updates.memory, // Assume execute returned the full new memory array
-          // Update PC based on execute result (JMP might change it)
-          registers: { ...updates.registers, pc: updates.pc },
-          outputLog: [...state.outputLog, `[${currentPC.toString(16).padStart(3,'0')}] ${updates.log}`], // Add log message from execute
+          memory: updates.memory,
+          outputLog: [...state.outputLog, `[${currentPC.toString(16).padStart(3,'0')}] ${updates.log}`],
         };
+        // --- END CORRECTION ---
+
       } catch (error) {
         console.error("CPU Step Error:", error);
-        // Halt CPU or indicate error state?
         return {
           ...state,
-          isRunning: false, // Stop if running
+          isRunning: false,
           outputLog: [...state.outputLog, `ERROR: ${error.message}`],
         };
       }

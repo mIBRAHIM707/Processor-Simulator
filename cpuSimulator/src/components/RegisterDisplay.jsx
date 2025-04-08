@@ -3,7 +3,7 @@ import React from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Paper from '@mui/material/Paper';
-import Grid from '@mui/material/Grid';
+import Grid from '@mui/material/Grid'; // Use the stable v5 Grid location
 import { useCpuState } from '../context/CpuContext'; // Import the custom hook
 
 // Helper function to format numbers as hex (adjust padding as needed)
@@ -15,33 +15,34 @@ const formatHex = (value, bits = 16) => {
     return '0x' + hexValue.padStart(padding, '0');
 };
 
-function RegisterDisplay() { // No props needed anymore
-    const { state } = useCpuState(); // Get state from context
-    const { registers } = state; // Destructure registers from state
+function RegisterDisplay() {
+    const { state } = useCpuState();
+    const { registers } = state;
+
+    const renderRegister = (name, value, bits) => (
+        // Use fragments to avoid unnecessary Grid items if needed, or keep Grid
+        <React.Fragment key={name}>
+            <Grid xs={5} sx={{ textAlign: 'right', pr: 1 }}> {/* Align label right */}
+                <Typography variant="body2" color="text.secondary">{name}:</Typography>
+            </Grid>
+            <Grid xs={7}>
+                <Typography variant="body2" fontFamily="monospace" color="text.primary">{formatHex(value, bits)}</Typography>
+            </Grid>
+        </React.Fragment>
+    );
 
     return (
-        <Paper elevation={3} sx={{ p: 2 }}>
-            <Typography variant="h6" gutterBottom>
+        <Paper sx={{ p: 2, height: '100%' }}> {/* Allow paper to fill height if needed */}
+            <Typography variant="h6" gutterBottom color="text.primary">
                 Registers
             </Typography>
-            <Grid container spacing={1}>
-                <Grid item xs={6}><Typography variant="body2">PC:</Typography></Grid>
-                <Grid item xs={6}><Typography variant="body2" fontFamily="monospace">{formatHex(registers.pc, 9)}</Typography></Grid>
-
-                <Grid item xs={6}><Typography variant="body2">AR:</Typography></Grid>
-                <Grid item xs={6}><Typography variant="body2" fontFamily="monospace">{formatHex(registers.ar, 9)}</Typography></Grid>
-
-                <Grid item xs={6}><Typography variant="body2">ACC:</Typography></Grid>
-                <Grid item xs={6}><Typography variant="body2" fontFamily="monospace">{formatHex(registers.acc, 16)}</Typography></Grid>
-
-                <Grid item xs={6}><Typography variant="body2">DR:</Typography></Grid>
-                <Grid item xs={6}><Typography variant="body2" fontFamily="monospace">{formatHex(registers.dr, 16)}</Typography></Grid>
-
-                <Grid item xs={6}><Typography variant="body2">TR:</Typography></Grid>
-                <Grid item xs={6}><Typography variant="body2" fontFamily="monospace">{formatHex(registers.tr, 16)}</Typography></Grid>
-
-                <Grid item xs={6}><Typography variant="body2">PR:</Typography></Grid>
-                <Grid item xs={6}><Typography variant="body2" fontFamily="monospace">{formatHex(registers.pr, 8)}</Typography></Grid>
+            <Grid container spacing={0.5} alignItems="center"> {/* Reduced spacing */}
+                {renderRegister("PC", registers.pc, 9)}
+                {renderRegister("AR", registers.ar, 9)}
+                {renderRegister("ACC", registers.acc, 16)}
+                {renderRegister("DR", registers.dr, 16)}
+                {renderRegister("TR", registers.tr, 16)}
+                {renderRegister("PR", registers.pr, 8)}
             </Grid>
         </Paper>
     );

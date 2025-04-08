@@ -4,6 +4,8 @@ import Paper from '@mui/material/Paper';
 import Button from '@mui/material/Button';
 import Stack from '@mui/material/Stack';
 import { useCpuState } from '../context/CpuContext';
+import ReplayIcon from '@mui/icons-material/Replay'; // Icon for Reset
+import SkipNextIcon from '@mui/icons-material/SkipNext'; // Icon for Step
 
 function ControlPanel() {
   const { dispatch } = useCpuState();
@@ -19,12 +21,45 @@ function ControlPanel() {
   // Removed dummy handleLoad
 
   return (
-    <Paper elevation={3} sx={{ p: 2 }}>
-      <Stack direction="row" spacing={2}>
-        {/* Removed Load button, it's now in CodeEditor */}
-        <Button variant="contained" onClick={handleStep}>Step</Button>
-        <Button variant="contained" disabled>Run</Button>
-        <Button variant="contained" color="error" onClick={handleReset}>Reset</Button>
+    <Paper sx={{ p: 2 }}>
+      <Stack direction="row" spacing={1} justifyContent="space-around"> {/* Distribute buttons */}
+        <Button
+          variant="outlined" // Outlined might look better than contained for secondary actions
+          onClick={handleStep}
+          disabled={isRunning}
+          startIcon={<SkipNextIcon />}
+          color="secondary" // Use secondary color
+        >
+          Step
+        </Button>
+        {!isRunning ? (
+          <Button
+            variant="contained" // Primary action
+            color="primary" // Uses theme primary (Spotify Green)
+            startIcon={<PlayArrowIcon />}
+            onClick={handleRun}
+          >
+            Run
+          </Button>
+        ) : (
+          <Button
+            variant="contained" // Primary action while running
+            color="primary"
+            startIcon={<StopIcon />}
+            onClick={handleStop}
+          >
+            Stop
+          </Button>
+        )}
+        <Button
+          variant="outlined" // Outlined for reset
+          color="error"
+          onClick={handleReset}
+          disabled={isRunning}
+          startIcon={<ReplayIcon />}
+        >
+          Reset
+        </Button>
       </Stack>
     </Paper>
   );
