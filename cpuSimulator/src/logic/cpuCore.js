@@ -395,54 +395,64 @@ export function execute(decoded, currentState) {
                 }
                 break; // End REGISTER type
 
-            case 'IO':
-                const portAddress = operand; // Use bits 8:0 as port address
-                logMessage += `Port:0x${portAddress.toString(16).padStart(3,'0')} `; // Pad port
-
-                // Check port range if necessary (0-511 same as address)
-                if (portAddress < 0 || portAddress > ADDR_MASK) throw new Error(`I/O Port OOB: ${portAddress}`);
-
-                switch (opcode) {
-                    case OPCODE_IO.IN: // ACC <- I/O[Port]
-                        // Simulate input - replace with actual I/O handler if needed
-                        tempVal = Math.floor(Math.random() * (MAX_WORD_VALUE + 1)); // Random input
-                        console.log(`SIMULATED I/O IN Port ${portAddress}: Read 0x${tempVal.toString(16).padStart(4,'0')}`);
-                        nextRegisters.acc = tempVal;
-                        nextFlags = calculateFlags(nextRegisters.acc, 0, 0, 'LOGIC'); // IN affects N, Z
-                        logMessage += `ACC<-I/O[${portAddress.toString(16).padStart(3,'0')}] (Sim 0x${tempVal.toString(16).padStart(4,'0')})`;
-                        break;
-                    case OPCODE_IO.OUT: // I/O[Port] <- ACC
-                        console.log(`SIMULATED I/O OUT Port ${portAddress}: Write 0x${registers.acc.toString(16).padStart(4,'0')}`);
-                        logMessage += `I/O[${portAddress.toString(16).padStart(3,'0')}]<-ACC (0x${registers.acc.toString(16).padStart(4,'0')})`;
-                        break;
-                    case OPCODE_IO.INOUT: // Input then Output (Simulated) ACC <- IO; IO <- ACC
-                        tempVal = Math.floor(Math.random() * (MAX_WORD_VALUE + 1)); // Simulate Input
-                         console.log(`SIMULATED I/O IN Port ${portAddress}: Read 0x${tempVal.toString(16).padStart(4,'0')}`);
-                        nextRegisters.acc = tempVal; // ACC updated first
-                        nextFlags = calculateFlags(nextRegisters.acc, 0, 0, 'LOGIC'); // IN affects N, Z
-                        console.log(`SIMULATED I/O OUT Port ${portAddress}: Write 0x${nextRegisters.acc.toString(16).padStart(4,'0')} (after IN)`);
-                        logMessage += `IN->ACC(0x${tempVal.toString(16).padStart(4,'0')}); OUT from ACC`;
-                        break;
-                    case OPCODE_IO.OUTIN: // Output then Input (Simulated) IO <- ACC; ACC <- IO
-                        console.log(`SIMULATED I/O OUT Port ${portAddress}: Write 0x${registers.acc.toString(16).padStart(4,'0')} (before IN)`);
-                        tempVal = Math.floor(Math.random() * (MAX_WORD_VALUE + 1)); // Simulate Input
-                        console.log(`SIMULATED I/O IN Port ${portAddress}: Read 0x${tempVal.toString(16).padStart(4,'0')}`);
-                        nextRegisters.acc = tempVal; // ACC updated after output
-                        nextFlags = calculateFlags(nextRegisters.acc, 0, 0, 'LOGIC'); // IN affects N, Z
-                        logMessage += `OUT from ACC; IN->ACC(0x${tempVal.toString(16).padStart(4,'0')})`;
-                        break;
-                    case OPCODE_IO.WAIT: // Wait for I/O (No-op in simulation for now)
-                        logMessage += `WAIT (No-op)`;
-                        // Could potentially halt/yield in a more complex simulation
-                        break;
-                    case OPCODE_IO.HALT: // Halt processor
-                        haltExecution = true;
-                        nextPC = registers.pc; // PC does not advance on HALT
-                        logMessage += `HALT`;
-                        break;
-                    default: throw new Error(`Invalid IO Opcode in Execute: ${opcode}`);
-                }
-                break; // End IO type
+                case 'IO': { // Added braces for scope clarity
+                  const portAddress = operand;
+  
+                  // *** FIX HERE: Only add Port info for relevant opcodes ***
+                  // Check port range centrally if needed
+                   if (portAddress < 0 || portAddress > ADDR_MASK) {
+                       // This check might be too strict if HALT/WAIT have operand=0 intentionally
+                       // Consider checking only for IN/OUT/INOUT/OUTIN if needed
+                       // console.warn(`I/O Port potentially OOB: ${portAddress}`); // Less strict warning?
+                   }
+  
+  
+                  switch (opcode) {
+                      case OPCODE_IO.IN:
+                           logMessage += `Port:0x${portAddress.toString(16).padStart(3,'0')} `; // Add Port here
+                          tempVal = Math.floor(Math.random() * (MAX_WORD_VALUE + 1));
+                          console.log(`SIMULATED I/O IN Port ${portAddress}: Read 0x${tempVal.toString(16).padStart(4,'0')}`);
+                          nextRegisters.acc = tempVal;
+                          nextFlags = calculateFlags(nextRegisters.acc, 0, 0, 'LOGIC');
+                          logMessage += `ACC<-I/O[...] (Sim 0x${tempVal.toString(16).padStart(4,'0')})`; // Keep log concise
+                          break;
+                      case OPCODE_IO.OUT:
+                           logMessage += `Port:0x${portAddress.toString(16).padStart(3,'0')} `; // Add Port here
+                          console.log(`SIMULATED I/O OUT Port ${portAddress}: Write 0x${registers.acc.toString(16).padStart(4,'0')}`);
+                          logMessage += `I/O[...]<-ACC (0x${registers.acc.toString(16).padStart(4,'0')})`;
+                          break;
+                      case OPCODE_IO.INOUT:
+                           logMessage += `Port:0x${portAddress.toString(16).padStart(3,'0')} `; // Add Port here
+                          tempVal = Math.floor(Math.random() * (MAX_WORD_VALUE + 1));
+                           console.log(`SIMULATED I/O IN Port ${portAddress}: Read 0x${tempVal.toString(16).padStart(4,'0')}`);
+                          nextRegisters.acc = tempVal;
+                          nextFlags = calculateFlags(nextRegisters.acc, 0, 0, 'LOGIC');
+                          console.log(`SIMULATED I/O OUT Port ${portAddress}: Write 0x${nextRegisters.acc.toString(16).padStart(4,'0')} (after IN)`);
+                          logMessage += `IN->ACC(0x${tempVal.toString(16).padStart(4,'0')}); OUT from ACC`;
+                          break;
+                      case OPCODE_IO.OUTIN:
+                           logMessage += `Port:0x${portAddress.toString(16).padStart(3,'0')} `; // Add Port here
+                          console.log(`SIMULATED I/O OUT Port ${portAddress}: Write 0x${registers.acc.toString(16).padStart(4,'0')} (before IN)`);
+                          tempVal = Math.floor(Math.random() * (MAX_WORD_VALUE + 1));
+                          console.log(`SIMULATED I/O IN Port ${portAddress}: Read 0x${tempVal.toString(16).padStart(4,'0')}`);
+                          nextRegisters.acc = tempVal;
+                          nextFlags = calculateFlags(nextRegisters.acc, 0, 0, 'LOGIC');
+                          logMessage += `OUT from ACC; IN->ACC(0x${tempVal.toString(16).padStart(4,'0')})`;
+                          break;
+                      case OPCODE_IO.WAIT:
+                          // No Port info needed
+                          logMessage += `WAIT (No-op)`;
+                          break;
+                      case OPCODE_IO.HALT:
+                           // No Port info needed
+                          haltExecution = true;
+                          nextPC = registers.pc; // PC does not advance
+                          logMessage += `HALT`; // Corrected log message
+                          break;
+                      default: throw new Error(`Invalid IO Opcode in Execute: ${opcode}`);
+                  }
+                  break; // End IO type
+              }
 
             default: // UNKNOWN Type from decode
                  logMessage += `-> ERROR: Unknown instruction type '${type}' from Decode`;
