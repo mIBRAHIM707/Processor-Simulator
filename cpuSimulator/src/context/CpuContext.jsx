@@ -1,11 +1,11 @@
 // src/context/CpuContext.jsx
 import React, { createContext, useReducer, useContext } from 'react';
-import { fetch, decode, execute } from '../logic/cpuCore';
+import { fetch, decode, execute, MAX_WORD_VALUE, MEMORY_SIZE, ADDR_MASK } from '../logic/cpuCore'; // <<< ADD IMPORTS HERE
 
 // It's cleaner if cpuCore exports constants it uses internally
 // Or redefine them here, ensuring they match
-const MEMORY_SIZE = 512;
-const ADDR_MASK = 0x1FF;
+// const MEMORY_SIZE = 512;
+// const ADDR_MASK = 0x1FF;
 
 const initialCpuState = {
   registers: {

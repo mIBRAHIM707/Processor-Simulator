@@ -488,7 +488,6 @@ export function execute(decoded, currentState) {
 
     return finalState;
 }
-export { fetch, decode, execute /*, calculateFlags (if needed directly elsewhere) */ };
 
 
 // --- Need to define initialCpuState within CpuContext.jsx using MEMORY_SIZE ---
