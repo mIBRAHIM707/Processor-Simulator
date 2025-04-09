@@ -36,10 +36,8 @@ class AssemblyError extends Error {
     }
 }
 
-/**
- * Helper to parse numeric values (hex or decimal)
- */
-function parseNumericValue(valueStr, type, currentLineNumber) {
+// --- Helper Functions ---
+function parseNumericValue(valueStr, context, currentLineNumber) {
     let value;
     if (valueStr.startsWith('0x')) {
         value = parseInt(valueStr.substring(2), 16);
@@ -47,196 +45,291 @@ function parseNumericValue(valueStr, type, currentLineNumber) {
         value = parseInt(valueStr, 10);
     }
     if (isNaN(value)) {
-        throw new AssemblyError(`Invalid numeric value for ${type}: ${valueStr}`, currentLineNumber);
+        throw new AssemblyError(`Invalid numeric value for ${context}: ${valueStr}`, currentLineNumber);
     }
     return value;
 }
 
+// --- Regex Definitions ---
+// Match label definitions (e.g., "LOOP:", "DATA_A:") case-sensitive? Let's make label case-sensitive.
+const labelDefRegex = /^([a-zA-Z_][a-zA-Z0-9_]*):/;
+// Match directives (case-insensitive for directive name)
+const orgRegex = /^\.ORG\s+(0x[0-9A-Fa-f]+|[0-9]+)$/i;
+const wordRegex = /^\.WORD\s+(0x[0-9A-Fa-f]+|[0-9]+)$/i;
+// Match instructions that can take a label or number as operand
+const memIoLabelNumRegex = /^(?:\(([^)]+)\)\s+)?(LDA|STA|ADD|SUB|AND|OR|XOR|JMP|IN|OUT|INOUT|OUTIN)\s+([a-zA-Z_][a-zA-Z0-9_]*|0x[0-9A-Fa-f]+|[0-9]+)$/i;
+// Match zero-operand instructions
+const zeroOpRegex = /^(?:\(([^)]+)\)\s+)?(HALT|WAIT)$/i;
+// Match single-register instructions (ACC only)
+const singleRegRegex = /^(?:\(([^)]+)\)\s+)?(LSHL|LSHR)\s+(ACC)$/i;
+// Match two-register instructions (ACC, DR only)
+const twoRegRegex = /^(?:\(([^)]+)\)\s+)?(MOV|ADD|SUB|CMP|AND|OR)\s+(ACC)\s*,?\s*(DR)$/i;
+
 
 /**
- * Assembles assembly code, including .ORG and .WORD directives.
+ * Assembles assembly code using a two-pass approach with labels.
+ * Handles .ORG and .WORD directives.
  * Returns a Map where keys are addresses and values are the words to store.
  */
 export function assemble(codeString) {
     const lines = codeString.split('\n');
-    const memoryMap = new Map();
-    let currentLineNumber = 0;
-    let currentAddress = 0; // Tracks assembly location
+    const symbolTable = new Map(); // Stores { labelName: address }
 
-    // STEP 2: Regex for directives (case-insensitive for directive name)
-    const orgRegex = /^\.ORG\s+(0x[0-9A-Fa-f]+|[0-9]+)$/i;
-    const wordRegex = /^\.WORD\s+(0x[0-9A-Fa-f]+|[0-9]+)$/i;
-
+    // --- Pass 1: Build Symbol Table ---
+    let currentAddressPass1 = 0;
+    let currentLineNumberPass1 = 0;
+    // console.log("--- Starting Assembler Pass 1 ---");
 
     for (const line of lines) {
-        currentLineNumber++;
-        let trimmedLine = line.trim();
+        currentLineNumberPass1++;
+        let processedLine = line;
+        let label = null;
 
-        // Comments and empty lines
-        const commentIndex = trimmedLine.indexOf(';');
-        if (commentIndex !== -1) trimmedLine = trimmedLine.substring(0, commentIndex).trim();
-        if (!trimmedLine) continue;
+        // Handle comments first
+        const commentIndex = processedLine.indexOf(';');
+        if (commentIndex !== -1) {
+            processedLine = processedLine.substring(0, commentIndex);
+        }
+        processedLine = processedLine.trim();
 
+        // Check for label definition
+        const labelMatch = processedLine.match(labelDefRegex);
+        if (labelMatch) {
+            label = labelMatch[1]; // Extract label name
+            processedLine = processedLine.substring(labelMatch[0].length).trim(); // Remove label def from line
 
-        // --- STEP 2: Parse Directives First ---
-        let directiveMatch = trimmedLine.match(orgRegex);
-        if (directiveMatch) {
-            const addressStr = directiveMatch[1];
+            if (symbolTable.has(label)) {
+                 throw new AssemblyError(`Label '${label}' redefined`, currentLineNumberPass1);
+            }
+            symbolTable.set(label, currentAddressPass1); // Store label and its address
+            // console.log(`Pass 1: Found label '${label}' at 0x${currentAddressPass1.toString(16)}`);
+        }
+
+        // If line (after removing label/comment) is empty, skip
+        if (!processedLine) {
+            continue;
+        }
+
+        // Process directives or instructions to calculate size and advance address
+        let orgMatch = processedLine.match(orgRegex);
+        let wordMatch = processedLine.match(wordRegex);
+        let memIoMatch = processedLine.match(memIoLabelNumRegex);
+        let zeroOpMatch = processedLine.match(zeroOpRegex);
+        let singleRegMatch = processedLine.match(singleRegRegex);
+        let twoRegMatch = processedLine.match(twoRegRegex);
+
+        if (orgMatch) {
+            const addressStr = orgMatch[1];
             try {
-                const newAddress = parseNumericValue(addressStr, '.ORG directive', currentLineNumber);
+                 const newAddress = parseNumericValue(addressStr, '.ORG', currentLineNumberPass1);
                 if (newAddress < 0 || newAddress >= MEMORY_SIZE) {
-                    throw new AssemblyError(`.ORG address ${addressStr} out of range (0-${MEMORY_SIZE - 1})`, currentLineNumber);
+                    throw new AssemblyError(`.ORG address out of range`, currentLineNumberPass1);
                 }
-                currentAddress = newAddress; // Update the current assembly address
-                // console.log(`Assembler: Set current address to 0x${currentAddress.toString(16)}`);
-                continue; // Go to next line, .ORG doesn't place data
+                currentAddressPass1 = newAddress; // Update address for subsequent lines
+                 // console.log(`Pass 1: .ORG set address to 0x${currentAddressPass1.toString(16)}`);
             } catch (error) {
-                 // Propagate parsing/validation errors
-                 if (!(error instanceof AssemblyError)) { // Wrap generic errors
-                    throw new AssemblyError(error.message, currentLineNumber);
-                 }
-                 throw error;
+                if (!(error instanceof AssemblyError)) throw new AssemblyError(error.message, currentLineNumberPass1);
+                throw error;
             }
-        }
-
-        directiveMatch = trimmedLine.match(wordRegex);
-        if (directiveMatch) {
-            const valueStr = directiveMatch[1];
-             try {
-                const value = parseNumericValue(valueStr, '.WORD directive', currentLineNumber);
-                 if (value < 0 || value > MAX_WORD_VALUE) {
-                     throw new AssemblyError(`.WORD value ${valueStr} out of 16-bit range (0-${MAX_WORD_VALUE})`, currentLineNumber);
-                 }
-                 // Check if current address is valid before placing
-                 if (currentAddress < 0 || currentAddress >= MEMORY_SIZE) {
-                      throw new AssemblyError(`Cannot place .WORD at address 0x${currentAddress.toString(16)} (out of memory range)`, currentLineNumber);
-                 }
-
-                 // Place the data word into the map
-                 memoryMap.set(currentAddress, value);
-                 // console.log(`Assembler: Placed .WORD ${value.toString(16)} at 0x${currentAddress.toString(16)}`);
-                 currentAddress++; // Move to the next address
-                 continue; // Go to next line
-             } catch(error) {
-                 if (!(error instanceof AssemblyError)) {
-                    throw new AssemblyError(error.message, currentLineNumber);
-                 }
-                 throw error;
-             }
-        }
-
-        // --- If not a directive, comment, or empty line, parse as instruction ---
-        let instructionWord = null;
-        let parsed = false;
-
-        // 1. Try Format: (PRED) MNEMONIC OPERAND (numeric)
-        let match = trimmedLine.match(/^(?:\(([^)]+)\)\s+)?([A-Z]{2,5})\s+(0x[0-9A-Fa-f]+|[0-9]+)$/i);
-        if (match) {
-            const predicateStr = match[1]?.toUpperCase() || 'AL';
-            const mnemonic = match[2].toUpperCase();
-            const operandStr = match[3];
-            let operandValue = parseNumericValue(operandStr, `Operand for ${mnemonic}`, currentLineNumber); // Use helper
-
-            if (operandValue < 0 || operandValue > ADDR_MASK) {
-                 throw new AssemblyError(`Operand [${operandStr}] out of 9-bit range (0-${ADDR_MASK})`, currentLineNumber);
-            }
-            const predicateCode = PREDICATE[predicateStr];
-            if (predicateCode === undefined) throw new AssemblyError(`Unknown predicate: ${predicateStr}`, currentLineNumber);
-
-            let opcode = OPCODE_MEM[mnemonic] ?? OPCODE_IO[mnemonic];
-
-            if (opcode === undefined) {
-                 if (OPCODE_REG[mnemonic] !== undefined) {
-                       throw new AssemblyError(`Register instruction '${mnemonic}' cannot take a direct numeric/address operand in this format`, currentLineNumber);
-                 } else {
-                      throw new AssemblyError(`Unknown mnemonic or mnemonic '${mnemonic}' does not take a numeric/address operand`, currentLineNumber);
-                 }
-            }
-            if ((mnemonic === 'HALT' || mnemonic === 'WAIT') && OPCODE_IO[mnemonic] !== undefined) {
-                 throw new AssemblyError(`${mnemonic} instruction does not take an operand`, currentLineNumber);
-            }
-
-            instructionWord = (opcode << 12) | (predicateCode << 9) | operandValue;
-            parsed = true;
-        }
-
-        // 2. Try Format: (PRED) MNEMONIC (Zero operand IO: HALT, WAIT)
-        if (!parsed) {
-            match = trimmedLine.match(/^(?:\(([^)]+)\)\s+)?(HALT|WAIT)$/i);
-             if (match) {
-                 const predicateStr = match[1]?.toUpperCase() || 'AL';
-                 const mnemonic = match[2].toUpperCase();
-                 const predicateCode = PREDICATE[predicateStr];
-                 const opcode = OPCODE_IO[mnemonic];
-
-                 if (predicateCode === undefined) throw new AssemblyError(`Unknown predicate: ${predicateStr}`, currentLineNumber);
-                 if (opcode === undefined) throw new AssemblyError(`Internal Error: Mnemonic ${mnemonic} not found in IO Opcodes`, currentLineNumber);
-                 if (OPCODE_MEM[mnemonic] !== undefined || OPCODE_REG[mnemonic] !== undefined) {
-                     console.warn(`Assembler Warning: Mnemonic ${mnemonic} also exists in MEM/REG maps, but parsed as IO.`);
-                 }
-
-                 instructionWord = (opcode << 12) | (predicateCode << 9) | 0;
-                 parsed = true;
-             }
-        }
-
-        // 3. Try Format: (PRED) MNEMONIC R1 (LSHL ACC, LSHR ACC)
-        if (!parsed) {
-             match = trimmedLine.match(/^(?:\(([^)]+)\)\s+)?(LSHL|LSHR)\s+(ACC)$/i);
-             if (match) {
-                 const predicateStr = match[1]?.toUpperCase() || 'AL';
-                 const mnemonic = match[2].toUpperCase();
-                 const regStr = match[3].toUpperCase();
-                 const predicateCode = PREDICATE[predicateStr];
-                 const opcode = OPCODE_REG[mnemonic];
-
-                 if (predicateCode === undefined) throw new AssemblyError(`Unknown predicate: ${predicateStr}`, currentLineNumber);
-                 if (opcode === undefined) throw new AssemblyError(`Internal Error: Mnemonic ${mnemonic} not found in REG Opcodes`, currentLineNumber);
-                 if (regStr !== 'ACC') throw new AssemblyError(`Only 'ACC' is supported as operand for ${mnemonic}`, currentLineNumber);
-
-                 instructionWord = (opcode << 12) | (predicateCode << 9) | 0;
-                 parsed = true;
-             }
-        }
-
-        // 4. Try Format: (PRED) MNEMONIC R1, R2 (MOV ACC, DR etc.)
-        if (!parsed) {
-             match = trimmedLine.match(/^(?:\(([^)]+)\)\s+)?(MOV|ADD|SUB|CMP|AND|OR)\s+(ACC)\s*,?\s*(DR)$/i);
-             if (match) {
-                 const predicateStr = match[1]?.toUpperCase() || 'AL';
-                 const mnemonic = match[2].toUpperCase();
-                 const r1Str = match[3].toUpperCase();
-                 const r2Str = match[4].toUpperCase();
-                 const predicateCode = PREDICATE[predicateStr];
-                 const opcode = OPCODE_REG[mnemonic];
-
-                 if (predicateCode === undefined) throw new AssemblyError(`Unknown predicate: ${predicateStr}`, currentLineNumber);
-                 if (opcode === undefined) throw new AssemblyError(`Internal Error: Mnemonic ${mnemonic} not found in REG Opcodes`, currentLineNumber);
-                 if (r1Str !== 'ACC' || r2Str !== 'DR') throw new AssemblyError(`Only 'ACC, DR' are supported as operands for ${mnemonic}`, currentLineNumber);
-
-                 instructionWord = (opcode << 12) | (predicateCode << 9) | 0;
-                 parsed = true;
-             }
-        }
-
-        // --- Final Check & Placement for Instructions ---
-        if (!parsed || instructionWord === null) {
-            // If it wasn't a directive, comment, empty, or valid instruction... it's an error
-             throw new AssemblyError(`Invalid or unrecognised directive/instruction format: "${trimmedLine}"`, currentLineNumber);
+        } else if (wordMatch) {
+             // .WORD takes up one memory location
+             currentAddressPass1++;
+             // console.log(`Pass 1: .WORD found, incrementing address to 0x${currentAddressPass1.toString(16)}`);
+        } else if (memIoMatch || zeroOpMatch || singleRegMatch || twoRegMatch) {
+             // All instructions take up one memory location in this ISA
+             currentAddressPass1++;
+             // console.log(`Pass 1: Instruction found, incrementing address to 0x${currentAddressPass1.toString(16)}`);
         } else {
-             // Place instruction in Map at currentAddress
-             if (currentAddress < 0 || currentAddress >= MEMORY_SIZE) {
-                throw new AssemblyError(`Assembly address 0x${currentAddress.toString(16)} exceeds memory size (0-${MEMORY_SIZE - 1})`, currentLineNumber);
-             }
-             if(instructionWord < 0 || instructionWord > MAX_WORD_VALUE) {
-                 console.warn(`Assembler Warning: Generated instruction word ${instructionWord} out of 16-bit range.`);
-             }
-             memoryMap.set(currentAddress, instructionWord & MAX_WORD_VALUE);
-
-             // Increment address for next instruction/data word
-             currentAddress++;
+            // If it wasn't a label, comment, empty, directive, or known instruction format
+             throw new AssemblyError(`Unrecognised syntax or invalid instruction format: "${processedLine}"`, currentLineNumberPass1);
         }
-    } // End for loop over lines
 
+        // Check address bounds after potential increment
+        if (currentAddressPass1 > MEMORY_SIZE) { // Note: Check > not >= because address can be == MEMORY_SIZE after last word
+            throw new AssemblyError(`Assembly address 0x${currentAddressPass1.toString(16)} exceeds memory size`, currentLineNumberPass1);
+        }
+
+    } // End Pass 1 Loop
+
+    // console.log("--- Finished Pass 1, Symbol Table: ---", symbolTable);
+
+
+    // --- Pass 2: Generate Machine Code ---
+    const memoryMap = new Map();
+    let currentAddressPass2 = 0;
+    let currentLineNumberPass2 = 0;
+    // console.log("--- Starting Assembler Pass 2 ---");
+
+    for (const line of lines) {
+         currentLineNumberPass2++;
+         let processedLine = line;
+         let instructionWord = null;
+         let parsedThisLine = false; // Flag to track if line generated output/action
+
+        // Handle comments
+        const commentIndex = processedLine.indexOf(';');
+        if (commentIndex !== -1) {
+            processedLine = processedLine.substring(0, commentIndex);
+        }
+        processedLine = processedLine.trim();
+
+         // Strip label definitions (don't process them again, just remove)
+         const labelMatch = processedLine.match(labelDefRegex);
+         if (labelMatch) {
+             processedLine = processedLine.substring(labelMatch[0].length).trim();
+         }
+
+         // Skip empty lines
+         if (!processedLine) {
+             continue;
+         }
+
+        // Process Directives (.ORG, .WORD)
+        let orgMatch = processedLine.match(orgRegex);
+        let wordMatch = processedLine.match(wordRegex);
+
+        if (orgMatch) {
+            const addressStr = orgMatch[1];
+             try {
+                const newAddress = parseNumericValue(addressStr, '.ORG', currentLineNumberPass2);
+                // Range already checked in Pass 1, but good practice:
+                if (newAddress < 0 || newAddress >= MEMORY_SIZE) {
+                   throw new Error(); // Should not happen if Pass 1 worked
+                }
+                currentAddressPass2 = newAddress;
+                parsedThisLine = true;
+                // console.log(`Pass 2: .ORG set address to 0x${currentAddressPass2.toString(16)}`);
+            } catch { // Simplified error handling as it should be caught in Pass 1
+                 throw new AssemblyError(`Internal Error processing .ORG`, currentLineNumberPass2);
+            }
+        } else if (wordMatch) {
+            const valueStr = wordMatch[1];
+            try {
+                const value = parseNumericValue(valueStr, '.WORD', currentLineNumberPass2);
+                if (value < 0 || value > MAX_WORD_VALUE) {
+                     throw new AssemblyError(`.WORD value out of 16-bit range`, currentLineNumberPass2);
+                }
+                if (currentAddressPass2 >= MEMORY_SIZE) {
+                    throw new AssemblyError(`Memory address out of bounds for .WORD`, currentLineNumberPass2);
+                }
+                memoryMap.set(currentAddressPass2, value);
+                currentAddressPass2++;
+                parsedThisLine = true;
+                // console.log(`Pass 2: Placed .WORD ${value.toString(16)} at 0x${(currentAddressPass2-1).toString(16)}`);
+            } catch (error) {
+                 if (!(error instanceof AssemblyError)) throw new AssemblyError(error.message, currentLineNumberPass2);
+                 throw error;
+            }
+        } else {
+            // --- If not a directive, parse as Instruction ---
+            let match; // Reuse match variable
+
+            // 1. Try Mem/IO with Label or Number Operand
+            match = processedLine.match(memIoLabelNumRegex);
+            if (match) {
+                const predicateStr = match[1]?.toUpperCase() || 'AL';
+                const mnemonic = match[2].toUpperCase();
+                const operandStr = match[3];
+                let operandValue = 0;
+
+                // Resolve operand: Check if it's a label or number
+                if (symbolTable.has(operandStr)) {
+                    operandValue = symbolTable.get(operandStr);
+                    // console.log(`Pass 2: Resolved label '${operandStr}' to 0x${operandValue.toString(16)}`);
+                } else {
+                    try {
+                         operandValue = parseNumericValue(operandStr, `Operand for ${mnemonic}`, currentLineNumberPass2);
+                         // console.log(`Pass 2: Parsed numeric operand ${operandStr} to ${operandValue}`);
+                    } catch (e) {
+                         // If it's not in symbol table and not a valid number -> Undefined label
+                         throw new AssemblyError(`Undefined label or invalid numeric operand: '${operandStr}'`, currentLineNumberPass2);
+                    }
+                }
+
+                // Validate operand range (resolved address/port)
+                if (operandValue < 0 || operandValue > ADDR_MASK) {
+                     throw new AssemblyError(`Resolved operand value [0x${operandValue.toString(16)}] out of 9-bit range (0-${ADDR_MASK})`, currentLineNumberPass2);
+                }
+                const predicateCode = PREDICATE[predicateStr];
+                if (predicateCode === undefined) throw new AssemblyError(`Unknown predicate: ${predicateStr}`, currentLineNumberPass2);
+
+                let opcode = OPCODE_MEM[mnemonic] ?? OPCODE_IO[mnemonic];
+                if (opcode === undefined) { // Should not happen if Pass 1 worked, but check anyway
+                     throw new AssemblyError(`Internal error: Unknown mnemonic '${mnemonic}' in Pass 2`, currentLineNumberPass2);
+                }
+                 // No need to re-check for HALT/WAIT with operand here, format won't match
+
+                instructionWord = (opcode << 12) | (predicateCode << 9) | operandValue;
+                parsedThisLine = true;
+            }
+
+            // 2. Try Zero Operand Instructions
+            if (!parsedThisLine) {
+                match = processedLine.match(zeroOpRegex);
+                if (match) {
+                    const predicateStr = match[1]?.toUpperCase() || 'AL';
+                    const mnemonic = match[2].toUpperCase();
+                    const predicateCode = PREDICATE[predicateStr];
+                    const opcode = OPCODE_IO[mnemonic];
+
+                    if (predicateCode === undefined) throw new AssemblyError(`Unknown predicate: ${predicateStr}`, currentLineNumberPass2);
+                    if (opcode === undefined) throw new AssemblyError(`Internal Error: Mnemonic ${mnemonic} not found`, currentLineNumberPass2);
+
+                    instructionWord = (opcode << 12) | (predicateCode << 9) | 0;
+                    parsedThisLine = true;
+                }
+            }
+
+            // 3. Try Single Register Instructions
+            if (!parsedThisLine) {
+                 match = processedLine.match(singleRegRegex);
+                 if (match) {
+                     const predicateStr = match[1]?.toUpperCase() || 'AL';
+                     const mnemonic = match[2].toUpperCase();
+                     const predicateCode = PREDICATE[predicateStr];
+                     const opcode = OPCODE_REG[mnemonic];
+
+                     if (predicateCode === undefined) throw new AssemblyError(`Unknown predicate: ${predicateStr}`, currentLineNumberPass2);
+                     if (opcode === undefined) throw new AssemblyError(`Internal Error: Mnemonic ${mnemonic} not found`, currentLineNumberPass2);
+
+                     instructionWord = (opcode << 12) | (predicateCode << 9) | 0;
+                     parsedThisLine = true;
+                 }
+            }
+
+             // 4. Try Two Register Instructions
+             if (!parsedThisLine) {
+                 match = processedLine.match(twoRegRegex);
+                 if (match) {
+                     const predicateStr = match[1]?.toUpperCase() || 'AL';
+                     const mnemonic = match[2].toUpperCase();
+                     const predicateCode = PREDICATE[predicateStr];
+                     const opcode = OPCODE_REG[mnemonic];
+
+                     if (predicateCode === undefined) throw new AssemblyError(`Unknown predicate: ${predicateStr}`, currentLineNumberPass2);
+                     if (opcode === undefined) throw new AssemblyError(`Internal Error: Mnemonic ${mnemonic} not found`, currentLineNumberPass2);
+                     // ACC, DR already checked by regex
+
+                     instructionWord = (opcode << 12) | (predicateCode << 9) | 0;
+                     parsedThisLine = true;
+                 }
+             }
+
+             // --- Place Instruction Word ---
+             if(parsedThisLine && instructionWord !== null) {
+                if (currentAddressPass2 >= MEMORY_SIZE) {
+                    throw new AssemblyError(`Memory address out of bounds for instruction`, currentLineNumberPass2);
+                }
+                 memoryMap.set(currentAddressPass2, instructionWord & MAX_WORD_VALUE);
+                 currentAddressPass2++;
+                 // console.log(`Pass 2: Placed instruction ${instructionWord.toString(16)} at 0x${(currentAddressPass2-1).toString(16)}`);
+             } else if (!parsedThisLine) {
+                 // If it wasn't a directive and didn't match any instruction format
+                 throw new AssemblyError(`Unrecognised syntax or invalid instruction format: "${processedLine}"`, currentLineNumberPass2);
+             }
+        } // End else (parse as instruction)
+    } // End Pass 2 Loop
+
+    // console.log("--- Finished Pass 2 ---");
     return memoryMap;
 }
