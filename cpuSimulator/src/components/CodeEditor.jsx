@@ -1,12 +1,12 @@
 // src/components/CodeEditor.jsx
 import React, { useState } from 'react';
 import Paper from '@mui/material/Paper';
-import TextField from '@mui/material/TextField'; // Ensure this is imported
+import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import Box from '@mui/material/Box';
 import { useCpuState } from '../context/CpuContext';
-import { assemble } from '../logic/assembler';
+import { assemble } from '../logic/assembler'; // Ensure assemble is imported
 
 function CodeEditor() {
   const [assemblyCode, setAssemblyCode] = useState('');
@@ -14,45 +14,47 @@ function CodeEditor() {
 
   const handleAssembleLoad = () => {
     try {
-      const machineCode = assemble(assemblyCode);
-      dispatch({ type: 'LOAD_CODE', payload: machineCode });
-      dispatch({ type: 'UPDATE_LOG', payload: `Assembly successful. ${machineCode.length} words loaded.` });
+      // Assemble returns a Map now
+      const memoryMap = assemble(assemblyCode); // Changed variable name for clarity
+      dispatch({ type: 'LOAD_CODE', payload: memoryMap }); // Pass the Map
+
+      // *** FIX HERE: Use memoryMap.size instead of machineCode.length ***
+      const wordCount = memoryMap.size; // Get the number of entries in the Map
+      dispatch({ type: 'UPDATE_LOG', payload: `Assembly successful. ${wordCount} words mapped.` }); // Update log message
+
     } catch (error) {
       console.error("Assembly Error:", error);
       let errorMessage = `Assembly Error: ${error.message}`;
-      // Add line number if available from our custom error
       if (error.lineNumber) {
-         errorMessage = `Assembly Error (Line ${error.lineNumber}): ${error.message.replace(` (Line ${error.lineNumber})`, '')}`; // Avoid duplicate line info
+         errorMessage = `Assembly Error (Line ${error.lineNumber}): ${error.message.replace(` (Line ${error.lineNumber})`, '')}`;
       }
       dispatch({ type: 'UPDATE_LOG', payload: errorMessage });
     }
   };
 
   return (
-    // Make Paper fill height if needed within its parent Box
     <Paper sx={{ p: 2, display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <Typography variant="h6" gutterBottom color="text.primary">Assembly Code</Typography>
-      <TextField
+       <Typography variant="h6" gutterBottom color="text.primary">Assembly Code</Typography>
+       <TextField
         id="assembly-code-editor"
         label="Enter code"
         multiline
-        // Let TextField grow and shrink, manage height via parent Box
         fullWidth
-        variant="outlined" // Using theme defaults now
+        variant="outlined"
         value={assemblyCode}
         onChange={(e) => setAssemblyCode(e.target.value)}
-        placeholder={`Example:\nLDA 0x10\n(CS) ADD 0x11\nSTA 0x12`} // Use newline character directly in template literal
+        placeholder={`.ORG 0x00\nLDA 0x10\nHALT\n\n.ORG 0x10\n.WORD 0xABCD`}
         InputProps={{ sx: {
              fontFamily: 'monospace',
-             flexGrow: 1, // Allow input area to grow
-             overflow: 'auto' // Ensure scrollbar within input
+             flexGrow: 1,
+             overflow: 'auto'
            } }}
-        sx={{ mb: 1, flexGrow: 1, '& .MuiInputBase-root': { height: '100%' } }} // Make TextField take available space
+        sx={{ mb: 1, flexGrow: 1, '& .MuiInputBase-root': { height: '100%' } }}
       />
-      <Box sx={{ pt: 1, flexShrink: 0 }}> {/* Prevent button from shrinking */}
+      <Box sx={{ pt: 1, flexShrink: 0 }}>
         <Button
             variant="contained"
-            color="primary" // Use primary color
+            color="primary"
             onClick={handleAssembleLoad}>
           Assemble & Load
         </Button>

@@ -1,21 +1,14 @@
 // src/logic/assembler.js
 
-// --- Define constants STRICTLY matching cpuCore.js ---
-// It's better to import these if possible, but defining ensures consistency if not.
+// --- Constants (Ensure these match cpuCore.js) ---
 const MEMORY_SIZE = 512;
 const ADDR_MASK = 0x1FF; // 9 bits
 const MAX_WORD_VALUE = 0xFFFF; // 16 bits
 
 // Predicates (Must match cpuCore.js exactly)
 const PREDICATE = {
-    AL: 0b000, // Always
-    EQ: 0b001, // Z=1 (Equal / Zero)
-    NE: 0b010, // Z=0 (Not Equal / Not Zero)
-    CS: 0b011, // C=1 (Carry Set / Unsigned >=)
-    CC: 0b100, // C=0 (Carry Clear / Unsigned <)
-    MI: 0b101, // N=1 (Minus / Negative)
-    PL: 0b110, // N=0 (Plus / Positive)
-    VS: 0b111, // V=1 (Overflow Set)
+    AL: 0b000, EQ: 0b001, NE: 0b010, CS: 0b011,
+    CC: 0b100, MI: 0b101, PL: 0b110, VS: 0b111,
 };
 
 // Opcodes (Must match cpuCore.js exactly)
@@ -44,16 +37,36 @@ class AssemblyError extends Error {
 }
 
 /**
- * Assembles assembly code based on the ISA document.
+ * Helper to parse numeric values (hex or decimal)
+ */
+function parseNumericValue(valueStr, type, currentLineNumber) {
+    let value;
+    if (valueStr.startsWith('0x')) {
+        value = parseInt(valueStr.substring(2), 16);
+    } else {
+        value = parseInt(valueStr, 10);
+    }
+    if (isNaN(value)) {
+        throw new AssemblyError(`Invalid numeric value for ${type}: ${valueStr}`, currentLineNumber);
+    }
+    return value;
+}
+
+
+/**
+ * Assembles assembly code, including .ORG and .WORD directives.
  * Returns a Map where keys are addresses and values are the words to store.
  */
 export function assemble(codeString) {
     const lines = codeString.split('\n');
-    // STEP 1 CHANGE: Output is now a Map, not an array
     const memoryMap = new Map();
     let currentLineNumber = 0;
-    // STEP 1 ADDITION: Track current assembly address
-    let currentAddress = 0;
+    let currentAddress = 0; // Tracks assembly location
+
+    // STEP 2: Regex for directives (case-insensitive for directive name)
+    const orgRegex = /^\.ORG\s+(0x[0-9A-Fa-f]+|[0-9]+)$/i;
+    const wordRegex = /^\.WORD\s+(0x[0-9A-Fa-f]+|[0-9]+)$/i;
+
 
     for (const line of lines) {
         currentLineNumber++;
@@ -64,47 +77,81 @@ export function assemble(codeString) {
         if (commentIndex !== -1) trimmedLine = trimmedLine.substring(0, commentIndex).trim();
         if (!trimmedLine) continue;
 
-        // --- Placeholder for future directive parsing (Step 2) ---
-        // In Step 1, we assume every non-comment/non-empty line is an instruction
 
+        // --- STEP 2: Parse Directives First ---
+        let directiveMatch = trimmedLine.match(orgRegex);
+        if (directiveMatch) {
+            const addressStr = directiveMatch[1];
+            try {
+                const newAddress = parseNumericValue(addressStr, '.ORG directive', currentLineNumber);
+                if (newAddress < 0 || newAddress >= MEMORY_SIZE) {
+                    throw new AssemblyError(`.ORG address ${addressStr} out of range (0-${MEMORY_SIZE - 1})`, currentLineNumber);
+                }
+                currentAddress = newAddress; // Update the current assembly address
+                // console.log(`Assembler: Set current address to 0x${currentAddress.toString(16)}`);
+                continue; // Go to next line, .ORG doesn't place data
+            } catch (error) {
+                 // Propagate parsing/validation errors
+                 if (!(error instanceof AssemblyError)) { // Wrap generic errors
+                    throw new AssemblyError(error.message, currentLineNumber);
+                 }
+                 throw error;
+            }
+        }
 
-        // --- Enhanced Parsing Logic ---
+        directiveMatch = trimmedLine.match(wordRegex);
+        if (directiveMatch) {
+            const valueStr = directiveMatch[1];
+             try {
+                const value = parseNumericValue(valueStr, '.WORD directive', currentLineNumber);
+                 if (value < 0 || value > MAX_WORD_VALUE) {
+                     throw new AssemblyError(`.WORD value ${valueStr} out of 16-bit range (0-${MAX_WORD_VALUE})`, currentLineNumber);
+                 }
+                 // Check if current address is valid before placing
+                 if (currentAddress < 0 || currentAddress >= MEMORY_SIZE) {
+                      throw new AssemblyError(`Cannot place .WORD at address 0x${currentAddress.toString(16)} (out of memory range)`, currentLineNumber);
+                 }
+
+                 // Place the data word into the map
+                 memoryMap.set(currentAddress, value);
+                 // console.log(`Assembler: Placed .WORD ${value.toString(16)} at 0x${currentAddress.toString(16)}`);
+                 currentAddress++; // Move to the next address
+                 continue; // Go to next line
+             } catch(error) {
+                 if (!(error instanceof AssemblyError)) {
+                    throw new AssemblyError(error.message, currentLineNumber);
+                 }
+                 throw error;
+             }
+        }
+
+        // --- If not a directive, comment, or empty line, parse as instruction ---
         let instructionWord = null;
         let parsed = false;
 
         // 1. Try Format: (PRED) MNEMONIC OPERAND (numeric)
-        // Covers: MEM instructions, IO instructions with Port operand
         let match = trimmedLine.match(/^(?:\(([^)]+)\)\s+)?([A-Z]{2,5})\s+(0x[0-9A-Fa-f]+|[0-9]+)$/i);
         if (match) {
             const predicateStr = match[1]?.toUpperCase() || 'AL';
             const mnemonic = match[2].toUpperCase();
             const operandStr = match[3];
-            let operandValue = 0;
+            let operandValue = parseNumericValue(operandStr, `Operand for ${mnemonic}`, currentLineNumber); // Use helper
 
-            if (operandStr.startsWith('0x')) operandValue = parseInt(operandStr.substring(2), 16);
-            else operandValue = parseInt(operandStr, 10);
-
-            if (isNaN(operandValue) || operandValue < 0 || operandValue > ADDR_MASK) { // Use ADDR_MASK
+            if (operandValue < 0 || operandValue > ADDR_MASK) {
                  throw new AssemblyError(`Operand [${operandStr}] out of 9-bit range (0-${ADDR_MASK})`, currentLineNumber);
             }
             const predicateCode = PREDICATE[predicateStr];
             if (predicateCode === undefined) throw new AssemblyError(`Unknown predicate: ${predicateStr}`, currentLineNumber);
 
-            // Determine if MEM or IO based on mnemonic
-            let opcode = OPCODE_MEM[mnemonic] ?? OPCODE_IO[mnemonic]; // Check MEM first, then IO
+            let opcode = OPCODE_MEM[mnemonic] ?? OPCODE_IO[mnemonic];
 
             if (opcode === undefined) {
-                 // Removed the faulty check here. Now correctly checks only if mnemonic isn't MEM/IO.
                  if (OPCODE_REG[mnemonic] !== undefined) {
-                      // This case means a REG instruction was used with a numeric operand where it's not allowed.
                        throw new AssemblyError(`Register instruction '${mnemonic}' cannot take a direct numeric/address operand in this format`, currentLineNumber);
                  } else {
-                      // Truly unknown mnemonic for this format
                       throw new AssemblyError(`Unknown mnemonic or mnemonic '${mnemonic}' does not take a numeric/address operand`, currentLineNumber);
                  }
             }
-
-            // Verify it's not a zero-operand IO op used incorrectly with an operand
             if ((mnemonic === 'HALT' || mnemonic === 'WAIT') && OPCODE_IO[mnemonic] !== undefined) {
                  throw new AssemblyError(`${mnemonic} instruction does not take an operand`, currentLineNumber);
             }
@@ -120,30 +167,28 @@ export function assemble(codeString) {
                  const predicateStr = match[1]?.toUpperCase() || 'AL';
                  const mnemonic = match[2].toUpperCase();
                  const predicateCode = PREDICATE[predicateStr];
-                 const opcode = OPCODE_IO[mnemonic]; // Must be HALT or WAIT
+                 const opcode = OPCODE_IO[mnemonic];
 
                  if (predicateCode === undefined) throw new AssemblyError(`Unknown predicate: ${predicateStr}`, currentLineNumber);
                  if (opcode === undefined) throw new AssemblyError(`Internal Error: Mnemonic ${mnemonic} not found in IO Opcodes`, currentLineNumber);
-
-                 // Check if it was accidentally defined in MEM or REG
                  if (OPCODE_MEM[mnemonic] !== undefined || OPCODE_REG[mnemonic] !== undefined) {
                      console.warn(`Assembler Warning: Mnemonic ${mnemonic} also exists in MEM/REG maps, but parsed as IO.`);
                  }
 
-                 instructionWord = (opcode << 12) | (predicateCode << 9) | 0; // Operand is 0
+                 instructionWord = (opcode << 12) | (predicateCode << 9) | 0;
                  parsed = true;
              }
         }
 
-        // 3. Try Format: (PRED) MNEMONIC R1 (Conceptual: LSHL ACC, LSHR ACC)
+        // 3. Try Format: (PRED) MNEMONIC R1 (LSHL ACC, LSHR ACC)
         if (!parsed) {
              match = trimmedLine.match(/^(?:\(([^)]+)\)\s+)?(LSHL|LSHR)\s+(ACC)$/i);
              if (match) {
                  const predicateStr = match[1]?.toUpperCase() || 'AL';
                  const mnemonic = match[2].toUpperCase();
-                 const regStr = match[3].toUpperCase(); // Should be ACC
+                 const regStr = match[3].toUpperCase();
                  const predicateCode = PREDICATE[predicateStr];
-                 const opcode = OPCODE_REG[mnemonic]; // Must be LSHL or LSHR
+                 const opcode = OPCODE_REG[mnemonic];
 
                  if (predicateCode === undefined) throw new AssemblyError(`Unknown predicate: ${predicateStr}`, currentLineNumber);
                  if (opcode === undefined) throw new AssemblyError(`Internal Error: Mnemonic ${mnemonic} not found in REG Opcodes`, currentLineNumber);
@@ -154,16 +199,16 @@ export function assemble(codeString) {
              }
         }
 
-        // 4. Try Format: (PRED) MNEMONIC R1, R2 (Conceptual: MOV ACC, DR etc.)
+        // 4. Try Format: (PRED) MNEMONIC R1, R2 (MOV ACC, DR etc.)
         if (!parsed) {
              match = trimmedLine.match(/^(?:\(([^)]+)\)\s+)?(MOV|ADD|SUB|CMP|AND|OR)\s+(ACC)\s*,?\s*(DR)$/i);
              if (match) {
                  const predicateStr = match[1]?.toUpperCase() || 'AL';
                  const mnemonic = match[2].toUpperCase();
-                 const r1Str = match[3].toUpperCase(); // Should be ACC
-                 const r2Str = match[4].toUpperCase(); // Should be DR
+                 const r1Str = match[3].toUpperCase();
+                 const r2Str = match[4].toUpperCase();
                  const predicateCode = PREDICATE[predicateStr];
-                 const opcode = OPCODE_REG[mnemonic]; // Must be MOV, ADD, SUB, CMP, AND, OR
+                 const opcode = OPCODE_REG[mnemonic];
 
                  if (predicateCode === undefined) throw new AssemblyError(`Unknown predicate: ${predicateStr}`, currentLineNumber);
                  if (opcode === undefined) throw new AssemblyError(`Internal Error: Mnemonic ${mnemonic} not found in REG Opcodes`, currentLineNumber);
@@ -174,27 +219,24 @@ export function assemble(codeString) {
              }
         }
 
-        // --- Final Check & Placement ---
+        // --- Final Check & Placement for Instructions ---
         if (!parsed || instructionWord === null) {
-            // If not parsed as instruction, maybe it's a directive (handle in Step 2)
-            // For Step 1, assume it's an error if not empty/comment
-             throw new AssemblyError(`Invalid or unparseable instruction format: "${trimmedLine}"`, currentLineNumber);
+            // If it wasn't a directive, comment, empty, or valid instruction... it's an error
+             throw new AssemblyError(`Invalid or unrecognised directive/instruction format: "${trimmedLine}"`, currentLineNumber);
         } else {
-             // STEP 1 CHANGE: Place instruction in Map at currentAddress
-             if (currentAddress >= MEMORY_SIZE) {
-                throw new AssemblyError(`Assembly address 0x${currentAddress.toString(16)} exceeds memory size (0x${(MEMORY_SIZE-1).toString(16)})`, currentLineNumber);
+             // Place instruction in Map at currentAddress
+             if (currentAddress < 0 || currentAddress >= MEMORY_SIZE) {
+                throw new AssemblyError(`Assembly address 0x${currentAddress.toString(16)} exceeds memory size (0-${MEMORY_SIZE - 1})`, currentLineNumber);
              }
-             // Ensure the instruction word is within the valid range (optional sanity check)
              if(instructionWord < 0 || instructionWord > MAX_WORD_VALUE) {
                  console.warn(`Assembler Warning: Generated instruction word ${instructionWord} out of 16-bit range.`);
              }
-             memoryMap.set(currentAddress, instructionWord & MAX_WORD_VALUE); // Ensure 16-bit
+             memoryMap.set(currentAddress, instructionWord & MAX_WORD_VALUE);
 
-             // STEP 1 ADDITION: Increment address for next instruction
+             // Increment address for next instruction/data word
              currentAddress++;
         }
     } // End for loop over lines
 
-    // STEP 1 CHANGE: Return the Map
     return memoryMap;
 }
