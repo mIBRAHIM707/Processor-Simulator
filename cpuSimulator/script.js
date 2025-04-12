@@ -42,6 +42,8 @@ let cpu = {
 // --- Memory ---
 let memory = new Uint16Array(MEMORY_SIZE);
 
+let instructionFormats = [];
+
 // --- Simulation Control ---
 let runInterval = null;
 let runSpeedMs = 100;
@@ -352,115 +354,119 @@ const predicateCheck = [
     (p) => p.p3 === 1      // 111: (P3)
 ];
 
-function decodeAndExecute(instructionWord) {
-    if (cpu.halted) return; // Don't execute if halted
+function decodeAndExecute(instructionWord, formatType) {
+    if (cpu.halted) return;
 
     const opcode = instructionWord >> 12;          // Bits [15:12]
     const pred = (instructionWord >> 9) & 0b111;   // Bits [11:9]
 
     // --- 1. Predicate Check ---
     const predicateTrue = predicateCheck[pred](cpu.p_file);
-
     if (!predicateTrue) {
         updateExecutionStatus(`Running (Skipped ${formatHex(cpu.pc -1, 3)})`);
         return; // Skip execution if predicate is false
     }
-
     updateExecutionStatus(`Running (Executing ${formatHex(cpu.pc -1, 3)})`);
 
-    // --- 2. Decode based on Opcode and Execute ---
-    let rd, rn, rm_idx, imm3, rm_imm3_val, address, pd, condCode, result; // Declare fields needed
+    // --- 2. Decode and Execute based on *Format Type* ---
+    let rd, rn, rm_idx, imm3, address, pd, condCode, result; // Declare fields needed
     let operand1_val, operand2, cmp_op1, cmp_op2; // For ALU operands
+    const bits_2_0 = instructionWord & 0b111; // Common extraction for last 3 bits
 
-    switch (opcode) {
-        // --- Memory Reference ---
-        case 0b0000: // LDR - Load ACC from Memory
-            address = instructionWord & 0x1FF; // Bits [8:0]
-            cpu.ar = address; // Update internal AR
-            if (address >= MMIO_START_ADDRESS) {
-                handleMMIORead(address); // Pauses if needed
-            } else {
-                cpu.dr = memory[address];
-                cpu.acc = cpu.dr;
-            }
-            break;
-
-        case 0b0001: // STR - Store ACC to Memory
-            address = instructionWord & 0x1FF; // Bits [8:0]
+    // <<< NEW: Use formatType as the primary switch >>>
+    switch (formatType) {
+        case "MEMORY":
+            address = instructionWord & 0x1FF; // Address [8:0]
             cpu.ar = address;
-            cpu.dr = cpu.acc; // Data to be stored is in ACC
-            if (address >= MMIO_START_ADDRESS) {
-                handleMMIOWrite(address, cpu.dr);
+            // Opcode distinguishes LDR/STR within this format
+            if (opcode === 0b0000) { // LDR
+                if (address >= MMIO_START_ADDRESS) { handleMMIORead(address); }
+                else { cpu.dr = memory[address]; cpu.acc = cpu.dr; }
+            } else if (opcode === 0b0001) { // STR
+                cpu.dr = cpu.acc;
+                if (address >= MMIO_START_ADDRESS) { handleMMIOWrite(address, cpu.dr); }
+                else { memory[address] = cpu.dr; }
             } else {
-                memory[address] = cpu.dr;
+                 logMessage(`Error: Unexpected opcode ${formatHex(opcode,1)} for MEMORY format.`, true);
+                 cpu.halted = true;
             }
             break;
 
-        // --- I-Type Data Processing (Simulated for #Imm3 syntax) ---
-        case 0b0010: // ADD
-        case 0b0011: // SUB
-        case 0b0100: // AND
-        case 0b0101: // ORR
-        case 0b0110: // XOR
-        case 0b1011: // LSHL
-        case 0b1100: // LSHR
-            // NOTE: This block SIMULATES I-TYPE (Rd = Rn op Imm3)
-            // To execute R-Type, the assembler must generate the appropriate bits,
-            // but this simulator block won't execute it as R-Type (except MOV/CMP).
+        case "BRANCH":
+            address = instructionWord & 0x1FF; // Address [8:0]
+            cpu.pc = address; // Absolute branch
+            break;
+
+        case "I_ALU": // Covers I-Type ADD, SUB, AND, OR, XOR, LSHL, LSHR
+        case "I_MOV": // Covers I-Type MOV Rd, Rn, #Imm
             rd = (instructionWord >> 6) & 0b111;
             rn = (instructionWord >> 3) & 0b111;
-            imm3 = instructionWord & 0b111; // Assume bits [2:0] are Imm3 value
+            imm3 = bits_2_0; // Bits [2:0] are Imm3 value
 
             operand1_val = cpu.gpr[rn];
-            operand2 = imm3; // The immediate value
+            operand2 = imm3; // Use immediate value
 
-            switch (opcode) {
-                case 0b0010: result = alu_add(operand1_val, operand2); break;
-                case 0b0011: result = alu_sub(operand1_val, operand2); break;
-                case 0b0100: result = alu_and(operand1_val, operand2); break;
-                case 0b0101: result = alu_or(operand1_val, operand2); break;
-                case 0b0110: result = alu_xor(operand1_val, operand2); break;
-                case 0b1011: result = alu_lshl(operand1_val, operand2); break; // Shift by Imm3 value
-                case 0b1100: result = alu_lshr(operand1_val, operand2); break; // Shift by Imm3 value
-                default: result = cpu.gpr[rd]; // Should not happen
+            switch (opcode) { // Opcode needed to know *which* ALU op
+                case 0b0010: result = alu_add(operand1_val, operand2); break; // ADD I
+                case 0b0011: result = alu_sub(operand1_val, operand2); break; // SUB I
+                case 0b0100: result = alu_and(operand1_val, operand2); break; // AND I
+                case 0b0101: result = alu_or(operand1_val, operand2); break;  // ORR I
+                case 0b0110: result = alu_xor(operand1_val, operand2); break; // XOR I
+                case 0b0111: result = alu_mov(operand2); break; // I-Type MOV Rd = Imm3
+                case 0b1011: result = alu_lshl(operand1_val, operand2); break; // LSHL I
+                case 0b1100: result = alu_lshr(operand1_val, operand2); break; // LSHR I
+                default:
+                     logMessage(`Error: Unexpected opcode ${formatHex(opcode,1)} for I_ALU/I_MOV format.`, true);
+                     cpu.halted = true; result = cpu.gpr[rd]; // Prevent crash
+                     break;
             }
             cpu.gpr[rd] = result;
-            break; // IMPORTANT: Break after handling this group
+            break;
 
-        // --- Special MOV Handling (R/I Heuristic) ---
-        case 0b0111: // MOV
-             rd = (instructionWord >> 6) & 0b111;
-             rn = (instructionWord >> 3) & 0b111;
-             rm_imm3_val = instructionWord & 0b111; // Could be Rm index OR Imm3 value
-
-             // Heuristic: If Rn=R7, treat as I-Type: MOV Rd, #Imm3
-             if (rn === 7) {
-                 result = alu_mov(rm_imm3_val); // Value is the immediate
-             }
-             // Otherwise, treat as R-Type: MOV Rd, GPR[Rm]
-             else {
-                 // Use the last 3 bits as the Rm index
-                 rm_idx = rm_imm3_val;
-                 result = alu_mov(cpu.gpr[rm_idx]); // Value from register Rm
-             }
-             cpu.gpr[rd] = result;
-             break; // End MOV block
-
-        // --- CMP (Assume R-Type for simulation) ---
-        // NOTE: If assembler generates I-Type CMP (e.g., from CMP R0, #5),
-        // this simulation logic will treat '5' as register index R5!
-        case 0b1000: // CMP -> Assume R-Type: CMP Rn, GPR[Rm]
+        case "R_ALU": // Covers R-Type ADD, SUB, AND, OR, XOR, LSHL, LSHR
+        case "R_MOV": // Covers R-Type MOV Rd, Rn, Rm
+            rd = (instructionWord >> 6) & 0b111;
             rn = (instructionWord >> 3) & 0b111;
-            rm_idx = instructionWord & 0b111; // Assume bits [2:0] are Rm index
+            rm_idx = bits_2_0; // Bits [2:0] are Rm index
 
-            cmp_op1 = cpu.gpr[rn];
-            cmp_op2 = cpu.gpr[rm_idx]; // Read Rm register value
+            operand1_val = cpu.gpr[rn];
+            operand2 = cpu.gpr[rm_idx]; // Fetch from Rm register
+            result;
 
-            updateFlagsForCMP(cmp_op1, cmp_op2);
-            break; // End CMP block
+            switch (opcode) {
+                case 0b0010: result = alu_add(operand1_val, operand2); break; // ADD R
+                case 0b0011: result = alu_sub(operand1_val, operand2); break; // SUB R
+                case 0b0100: result = alu_and(operand1_val, operand2); break; // AND R
+                case 0b0101: result = alu_or(operand1_val, operand2); break;  // ORR R
+                case 0b0110: result = alu_xor(operand1_val, operand2); break; // XOR R
+                case 0b0111: result = alu_mov(operand2); break; // R-Type MOV Rd = GPR[Rm]
+                case 0b1011: result = alu_lshl(operand1_val, operand2 & 0x7); break; // LSHL R (by Rm value)
+                case 0b1100: result = alu_lshr(operand1_val, operand2 & 0x7); break; // LSHR R (by Rm value)
+                default:
+                     logMessage(`Error: Unexpected opcode ${formatHex(opcode,1)} for R_ALU/R_MOV format.`, true);
+                     cpu.halted = true; result = cpu.gpr[rd]; // Prevent crash
+                     break;
+            }
+             cpu.gpr[rd] = result;
+             break;
 
-        // --- Predicate Setting ---
-        case 0b1001: // SETP
+        case "R_CMP": // Covers R-Type CMP Rn, Rm
+        case "I_CMP": // Covers I-Type CMP Rn, #Imm3
+            // Note: Rd field (bits 8:6) is ignored for CMP
+            rn = (instructionWord >> 3) & 0b111;
+            operand1_val = cpu.gpr[rn];
+
+            if(formatType === "R_CMP") {
+                rm_idx = bits_2_0; // Bits [2:0] are Rm index
+                operand2 = cpu.gpr[rm_idx]; // Fetch from Rm register
+            } else { // I_CMP
+                imm3 = bits_2_0; // Bits [2:0] are Imm3 value
+                operand2 = imm3;
+            }
+            updateFlagsForCMP(operand1_val, operand2);
+            break;
+
+        case "SETP":
             pd = (instructionWord >> 7) & 0b11;    // Bits [8:7]
             condCode = instructionWord & 0b111111; // Bits [5:0]
             const conditionMet = evaluateCond(condCode);
@@ -473,32 +479,25 @@ function decodeAndExecute(instructionWord) {
             }
             break;
 
-        // --- Control Flow ---
-        case 0b1010: // B - Branch
-            address = instructionWord & 0x1FF; // Bits [8:0]
-            cpu.pc = address; // Update PC directly
-            break;
-
-        // --- System ---
-        case 0b1101: // HLT
+        case "HLT":
             cpu.halted = true;
             updateExecutionStatus("Halted");
             logMessage("HLT instruction encountered.");
             stopSimulation();
             break;
 
-        // --- Reserved Opcodes ---
-        case 0b1110:
-        case 0b1111:
-            logMessage(`Executed Reserved Opcode: ${formatHex(opcode, 1)} at ${formatHex(cpu.pc - 1, 3)}`, true);
-            cpu.halted = true;
-            updateExecutionStatus("Halted (Reserved Opcode)");
-            break;
-
+        // Handle errors or unknown types
+        case "ERROR": // Format determined as error by assembler
+             logMessage(`Attempted to execute instruction assembled with errors at ${formatHex(cpu.pc - 1, 3)}`, true);
+             cpu.halted = true; updateExecutionStatus("Halted (Assembly Error)");
+             break;
+        case "UNKNOWN": // Format wasn't determined or index out of bounds
         default:
-            logMessage(`Unknown Opcode encountered: ${formatHex(opcode, 1)} at ${formatHex(cpu.pc - 1, 3)}`, true);
-            cpu.halted = true;
-            updateExecutionStatus("Halted (Unknown Opcode)");
+             logMessage(`Unknown or unhandled formatType '${formatType}' for Opcode ${formatHex(opcode, 1)} at ${formatHex(cpu.pc - 1, 3)}`, true);
+             // Fallback to opcode check for safety?
+             if(opcode === 0b1101) { /* HLT */ cpu.halted = true; updateExecutionStatus("Halted"); }
+             else if(opcode === 0b1110 || opcode === 0b1111) { /* RESERVED */ cpu.halted = true; updateExecutionStatus("Halted (Reserved Opcode)");}
+             else { /* UNKNOWN */ cpu.halted = true; updateExecutionStatus("Halted (Unknown Format/Opcode)"); }
             break;
     }
 }
@@ -547,20 +546,26 @@ const condCodeMap = {
 
 // --- Assembler ---
 
+// ... opCodeMap, regMap, pRegMap, predMap, condCodeMap constants remain the same ...
+
 function assemble(assemblyCode) {
     clearMessages();
     logMessage("Starting Assembly...");
     const lines = assemblyCode.split('\n');
     const symbolTable = {};
     let machineCode = [];
+    let formatInfo = []; // <<< NEW: Array to store format information
     let errors = [];
     let currentAddress = 0;
+    let lineAddressMap = {}; // Map line number to address for error reporting
 
     // --- Pass 1: Build Symbol Table (Labels) ---
     logMessage("Running Pass 1 (Symbol Table)...");
     lines.forEach((line, index) => {
         const cleanedLine = line.replace(/;.*$/, '').trim();
         if (!cleanedLine) return;
+
+        lineAddressMap[index + 1] = currentAddress; // Store address for this line index
 
         const labelMatch = cleanedLine.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*:/);
         if (labelMatch) {
@@ -580,28 +585,35 @@ function assemble(assemblyCode) {
             }
             const codeAfterLabel = cleanedLine.substring(labelMatch[0].length).trim();
              if (codeAfterLabel) {
-                 currentAddress++;
+                 currentAddress++; // Instruction follows label on same line
              }
         } else {
-            currentAddress++;
+            currentAddress++; // Assume lines without labels are instructions
         }
     });
     logMessage(`Pass 1 complete. Symbol Table: ${JSON.stringify(symbolTable)}`);
      if (errors.length > 0) {
          errors.forEach(err => logMessage(err, true));
-         return { success: false, errors: errors, machineCode: [] };
+         // <<< MODIFIED RETURN >>>
+         return { success: false, errors: errors, machineCode: [], formatInfo: [] };
      }
 
-    // --- Pass 2: Generate Machine Code ---
+    // --- Pass 2: Generate Machine Code & Format Info ---
     logMessage("Running Pass 2 (Code Generation)...");
     currentAddress = 0;
+    machineCode = new Array(currentAddress).fill(0); // Pre-fill based on Pass 1 count
+    formatInfo = new Array(currentAddress).fill("UNKNOWN"); // Pre-fill format info
+
     lines.forEach((line, index) => {
         let originalLine = line;
         let cleanedLine = line.replace(/;.*$/, '').trim();
         if (!cleanedLine) return;
 
+        const actualAddress = lineAddressMap[index + 1]; // Get address determined in Pass 1
+        if (actualAddress === undefined) return; // Should not happen if line was processed
+
         cleanedLine = cleanedLine.replace(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*:/, '').trim();
-        if (!cleanedLine) return;
+        if (!cleanedLine) return; // Skip lines containing only a label
 
         const instructionRegex = /^(?:\(([!A-Z0-9]+)\)\s+)?([A-Z]{2,4})\s*(.*)$/i;
         const match = cleanedLine.match(instructionRegex);
@@ -609,11 +621,8 @@ function assemble(assemblyCode) {
         if (!match) {
              if (cleanedLine) {
                   errors.push(`Line ${index + 1}: Invalid instruction format: "${originalLine.trim()}"`);
+                  formatInfo[actualAddress] = "ERROR"; // Mark format as error
              }
-             // Increment address ONLY if it corresponds to a line counted in pass 1
-             // This logic is tricky. Let's assume pass 1 got addresses right.
-             // We just skip generation for this line.
-             currentAddress++; // Need to advance address index regardless
              return;
         }
 
@@ -623,48 +632,59 @@ function assemble(assemblyCode) {
 
         if (!opCodeMap.hasOwnProperty(mnemonic)) {
             errors.push(`Line ${index + 1}: Unknown mnemonic '${mnemonic}'`);
-            currentAddress++; return;
+            formatInfo[actualAddress] = "ERROR";
+            return;
         }
-        const { opcode, format } = opCodeMap[mnemonic];
+        const { opcode, format: baseFormat } = opCodeMap[mnemonic];
 
         let predCode = defaultPredCode;
-        if (predMnemonic) {
+         if (predMnemonic) {
             const canonicalPred = `(${predMnemonic.toUpperCase()})`;
              if (!predMap.hasOwnProperty(canonicalPred)) {
                   if(predMnemonic.toUpperCase() === 'AL') { predCode = predMap['AL']; }
-                  else { errors.push(`Line ${index + 1}: Invalid predicate '${predMnemonic}'`); currentAddress++; return; }
+                  else { errors.push(`Line ${index + 1}: Invalid predicate '${predMnemonic}'`); formatInfo[actualAddress] = "ERROR"; return; }
              } else { predCode = predMap[canonicalPred]; }
         }
 
-        // --- Parse Operands ---
         let operands = [];
         if (operandsStr) {
             operands = operandsStr.split(',').map(op => op.trim()).filter(op => op.length > 0);
         }
 
-        // --- Assemble based on format ---
         let instructionWord = (opcode << 12) | (predCode << 9);
-        let addrVal; // Declare here for Memory/Branch
+        let specificFormat = "UNKNOWN"; // <<< Determine specific format
 
         try {
-            switch (format) {
+            let addrVal; // For Memory/Branch
+            let rd, rn, rm, imm3; // For DataProc
+            let condStr, pdStr, condVal, pdVal; // For SETP
+
+            switch (baseFormat) { // Use base format from opCodeMap
                 case 'Memory':
-                case 'Branch':
+                    specificFormat = "MEMORY"; // <<< Set Specific Format
                     if (operands.length !== 1) throw new Error(`Expected 1 operand (Address or Label), found ${operands.length}`);
                     addrVal = parseAddress(operands[0], symbolTable, index + 1);
                     instructionWord |= (addrVal & ADDRESS_MASK);
                     break;
 
+                case 'Branch':
+                    specificFormat = "BRANCH"; // <<< Set Specific Format
+                    if (operands.length !== 1) throw new Error(`Expected 1 operand (Target Address or Label), found ${operands.length}`);
+                    addrVal = parseAddress(operands[0], symbolTable, index + 1);
+                    instructionWord |= (addrVal & ADDRESS_MASK);
+                    break;
+
                 case 'DataProc':
-                    let rd = -1, rn = -1, rm = -1, imm3 = -1;
+                    // Determine R vs I type based on operands
                     if (mnemonic === 'CMP') {
                          if (operands.length !== 2) throw new Error(`Expected 2 operands (Rn, Rm or Rn, #Imm3), found ${operands.length}`);
                          rn = parseRegister(operands[0], index+1);
                          if (operands[1].startsWith('#')) { // I-Type CMP
+                             specificFormat = "I_CMP"; // <<< Set Specific Format
                              imm3 = parseImmediate(operands[1], 3, false, index+1);
-                             //logMessage(`Warning: Assembling I-Type CMP, but simulator executes as R-Type.`, false);
                              instructionWord |= (rn << 3) | (imm3 & 0b111);
                          } else { // R-Type CMP
+                             specificFormat = "R_CMP"; // <<< Set Specific Format
                              rm = parseRegister(operands[1], index+1);
                              instructionWord |= (rn << 3) | (rm & 0b111);
                          }
@@ -673,56 +693,57 @@ function assemble(assemblyCode) {
                         rd = parseRegister(operands[0], index+1);
                         rn = parseRegister(operands[1], index+1);
                          if (operands[2].startsWith('#')) { // I-Type ALU/MOV
+                             specificFormat = (mnemonic === 'MOV') ? "I_MOV" : "I_ALU"; // <<< Set Specific Format
                              imm3 = parseImmediate(operands[2], 3, false, index+1);
-                             // Warning for MOV simulation heuristic mismatch
-                             // if (mnemonic === 'MOV' && rn !== 7) { logMessage(`Warning: Assembling I-Type MOV Rd, Rn, #Imm but Rn is not R7. Simulator may treat as R-Type.`, false); }
                              instructionWord |= (rd << 6) | (rn << 3) | (imm3 & 0b111);
                          } else { // R-Type ALU/MOV
+                             specificFormat = (mnemonic === 'MOV') ? "R_MOV" : "R_ALU"; // <<< Set Specific Format
                              rm = parseRegister(operands[2], index+1);
-                             // Warning for MOV simulation heuristic mismatch
-                             // if (mnemonic === 'MOV' && rn === 7) { logMessage(`Warning: Assembling R-Type MOV Rd, R7, Rm. Simulator may treat as I-Type.`, false); }
                              instructionWord |= (rd << 6) | (rn << 3) | (rm & 0b111);
                          }
                     }
                     break;
 
                 case 'SETP':
+                    specificFormat = "SETP"; // <<< Set Specific Format
                     if (operands.length !== 2) throw new Error(`Expected 2 operands (Condition, Pd), found ${operands.length}`);
-                    let condStr = operands[0].toUpperCase();
-                    let pdStr = operands[1].toUpperCase();
+                    condStr = operands[0].toUpperCase();
+                    pdStr = operands[1].toUpperCase();
                     if (!condCodeMap.hasOwnProperty(condStr)) throw new Error(`Invalid condition code '${condStr}'`);
                     if (!pRegMap.hasOwnProperty(pdStr)) throw new Error(`Invalid predicate register '${pdStr}'`);
-                    let condVal = condCodeMap[condStr];
-                    let pdVal = pRegMap[pdStr];
+                    condVal = condCodeMap[condStr];
+                    pdVal = pRegMap[pdStr];
                     instructionWord |= (pdVal << 7) | (condVal & 0b111111);
                     break;
 
                 case 'HLT':
+                    specificFormat = "HLT"; // <<< Set Specific Format
                     if (operands.length !== 0) throw new Error(`HLT takes no operands, found ${operands.length}`);
                     break;
 
-                default: throw new Error(`Unsupported instruction format '${format}'`);
+                default:
+                    throw new Error(`Internal Assembler Error: Unknown base format '${baseFormat}'`);
             }
-            machineCode[currentAddress] = instructionWord;
+            machineCode[actualAddress] = instructionWord;
+            formatInfo[actualAddress] = specificFormat; // Store the determined format
+
         } catch (e) {
             errors.push(`Line ${index + 1}: ${e.message} in "${originalLine.trim()}"`);
-            machineCode[currentAddress] = 0; // Insert zero on error
+            machineCode[actualAddress] = 0; // Insert zero on error
+            formatInfo[actualAddress] = "ERROR"; // Mark format as error
         }
-        currentAddress++; // Increment address counter AFTER processing line
+        // currentAddress is handled by the address map now
     });
 
     // Final check and return
     if (errors.length > 0) {
         errors.forEach(err => logMessage(err, true));
         logMessage("Assembly failed.");
-        return { success: false, errors: errors, machineCode: [] };
+        return { success: false, errors: errors, machineCode: [], formatInfo: [] }; // <<< MODIFIED RETURN
     } else {
-        // Pad machine code array to match expected length from Pass 1 if needed
-        while(machineCode.length < currentAddress) {
-            machineCode.push(0); // Should ideally not happen with correct logic
-        }
         logMessage(`Assembly successful. ${machineCode.length} words generated.`);
-        return { success: true, errors: [], machineCode: machineCode.slice(0, MEMORY_SIZE) }; // Ensure not oversized
+        // <<< MODIFIED RETURN >>>
+        return { success: true, errors: [], machineCode: machineCode.slice(0, MEMORY_SIZE), formatInfo: formatInfo.slice(0, MEMORY_SIZE) };
     }
 }
 
@@ -857,17 +878,31 @@ function stepExecution() {
         return;
     }
 
-    if (!fetchInstruction()) {
-        // Fetch failed (e.g., PC out of bounds)
+    const pcToFetch = cpu.pc; // Get PC before potential increment
+
+    if (pcToFetch > ADDRESS_MASK) { // Check bounds before fetch attempt
+        logMessage(`PC out of bounds: ${formatHex(pcToFetch, 3)}`, true);
+        cpu.halted = true;
+        updateExecutionStatus("Halted (PC Error)");
         updateUI();
         return;
     }
 
-    const pcBeforeExecute = cpu.pc; // Store PC before increment/branch
-    incrementPC(); // Increment PC *before* execute to point to next instruction
+    if (!fetchInstruction()) { // Fetches into cpu.ir
+        // fetchInstruction already handles halting if needed
+        updateUI();
+        return;
+    }
 
-    // Decode and execute the instruction fetched into IR
-    decodeAndExecute(cpu.ir);
+    // Fetch the format type for the current instruction
+    // <<< MODIFIED: Fetch format type >>>
+    const currentFormat = (pcToFetch < instructionFormats.length) ? instructionFormats[pcToFetch] : "UNKNOWN";
+
+    incrementPC(); // Increment PC *before* execute
+
+    // Pass both instruction and format type
+    // <<< MODIFIED: Pass format type >>>
+    decodeAndExecute(cpu.ir, currentFormat);
 
     // Update UI AFTER execution step is complete
     updateUI();
@@ -936,7 +971,7 @@ function stopSimulation() {
 function setupEventListeners() {
     DOMElements.assembleButton.addEventListener('click', () => {
         const code = DOMElements.assemblyCode.value;
-        const result = assemble(code);
+        const result = assemble(code); // Result now contains formatInfo
 
         if (result.success) {
             // Load into memory
@@ -946,11 +981,15 @@ function setupEventListeners() {
                     memory[index] = word;
                 }
             });
+            // <<< STORE FORMAT INFO >>>
+            instructionFormats = result.formatInfo;
+
             logMessage(`Loaded ${result.machineCode.length} words into memory.`);
             updateUI(); // Show loaded memory and reset registers
             updateExecutionStatus("Ready");
         } else {
              logMessage("Assembly failed. See error messages.", true);
+             instructionFormats = []; // Clear format info on failure
              updateExecutionStatus("Assembly Error");
         }
     });
