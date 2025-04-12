@@ -102,7 +102,38 @@ function clearMessages() {
 }
 
 function updateExecutionStatus(status) {
-     DOMElements.executionStatus.textContent = `Status: ${status}`;
+    const statusElement = DOMElements.executionStatus;
+    statusElement.textContent = `Status: ${status}`;
+
+    // Remove previous status classes
+    statusElement.classList.remove(
+        'status-idle',
+        'status-running',
+        'status-paused',
+        'status-halted',
+        'status-error',
+        'status-ready' // Add ready if you use it
+       );
+
+    // Add the appropriate class based on the status text
+    if (status.toLowerCase().startsWith('idle')) {
+        statusElement.classList.add('status-idle');
+    } else if (status.toLowerCase().startsWith('running')) {
+        statusElement.classList.add('status-running');
+    } else if (status.toLowerCase().startsWith('paused')) {
+        statusElement.classList.add('status-paused');
+    } else if (status.toLowerCase().startsWith('halted')) {
+        statusElement.classList.add('status-halted');
+    } else if (status.toLowerCase().includes('error')) { // Check for 'error' substring
+        statusElement.classList.add('status-error');
+    } else if (status.toLowerCase().startsWith('ready')) { // Handle 'Ready' state after assembly
+         statusElement.classList.add('status-ready'); // You might want a specific style for ready
+         // Using idle style as default for ready
+          statusElement.classList.add('status-idle');
+    } else {
+        // Default style (if none of the above match)
+        statusElement.classList.add('status-idle');
+    }
 }
 
 // --- Core CPU Functions ---
@@ -1086,107 +1117,5 @@ document.addEventListener('DOMContentLoaded', () => {
 ; PrediCore Example: If-Then-Else and I/O Demo
 ; if (R1 > R2) then R3 = 1 else R3 = 0
 ; Then, write R3 to MMIO Port 0x1F1
-; Finally, read from MMIO Port 0x1F0 into R4
-
-    MOV R1, R7, #5     ; R1 = 5 (Using R7 as dummy Rn for immediate MOV)
-    MOV R2, R7, #3     ; R2 = 3
-
-    CMP R1, R2         ; Compare R1 and R2, sets ZNCV flags
-    SETP GT, P0        ; P0 = 1 if R1 > R2 (Signed Greater Than)
-    SETP LE, P1        ; P1 = 1 if R1 <= R2 (Signed Less/Equal)
-
-(P0) MOV R3, R7, #1    ; If P0=1 (R1>R2), then R3 = 1
-(P1) MOV R3, R7, #0    ; If P1=1 (R1<=R2), then R3 = 0
-
-; Store the result (R3) to MMIO Output Port 0x1F1
-    MOV R0, R3         ; Move R3 to R0 (prep for ACC) - Need MOV R,R ideally!
-                       ; Workaround: Use ACC directly if possible, or load R3 to ACC.
-                       ; Let's load R3 to ACC via memory (inefficient but works)
-    MOV R7, R7, #0     ; Dummy instruction needed if direct MOV R, ACC isn't supported
-    ; STR ACC needs the value *in* ACC. Let's assume MOV R3, ACC exists (or add it)
-    ; **Adjusting Example: Assume we use ACC temporarily**
-    ; (Requires assembler/simulator support for MOV ACC, Rx or similar)
-    ; **Simplification:** Let's just store R3's value *conceptually*
-    ; Need LDR/STR to use ACC. So, load R3 into ACC first.
-    ; We need a temporary memory location... let's use 0x100
-
-    MOV R0, R7, #0x100 ; R0 = address 0x100 (Need ADDR type immediate...)
-                       ; **Example Limitation:** ISA lacks MOV Reg, #Imm16
-                       ; Let's assume we manually put 0x100 in R0 somehow...
-    ; **Revised Strategy:** Let's put R3's value into ACC using the limited MOV
-    MOV ACC, R7, #0    ; Clear ACC (Assuming MOV ACC, #Imm exists - not specified!)
-                       ; **Further Revision:** Can't directly MOV to ACC. Must use LDR/STR.
-                       ; The example is hard with this limited ISA!
-
-    ; Let's try storing R3 and loading it back to ACC
-STORE_ADDR EQU 0x1E0   ; Define a memory location (not MMIO)
-    ; **PROBLEM:** Can't load STORE_ADDR into AR without LDR/STR using it.
-
-    ; FINAL ATTEMPT AT EXAMPLE LOGIC: Write R3 directly to IO port 0x1F1
-    ; This requires STR to take a register source, *not* implicit ACC.
-    ; ***ISA Contradiction/Limitation*** LDR/STR *only* use ACC.
-    ; The example MUST use ACC.
-
-    ; Corrected Example using ACC:
-    ; R3 holds 1 or 0. We need it in ACC to STR it.
-
-    MOV R1, R7, #5
-    MOV R2, R7, #3
-    CMP R1, R2
-    SETP GT, P0
-    SETP LE, P1
-
-(P0) MOV R0, R7, #1    ; R0 = 1 if R1 > R2 (Use R0 as intermediate for ACC)
-(P1) MOV R0, R7, #0    ; R0 = 0 if R1 <= R2
-    ; Now, how to get R0 into ACC? Can't directly.
-    ; Need to store R0 somewhere and LDR it.
-TEMP_LOC DATA 0        ; Define TEMP_LOC (let assembler handle address)
-
-    ; PROBLEM: Can't STR R0, TEMP_LOC ! Only STR ACC, Addr
-    ; This ISA is *very* restrictive for the example task.
-
-    ; --- Simplified I/O Example ---
-    ; Load a value, write it to 0x1F1, read from 0x1F0
-
-START:
-    LDR 0x100          ; Load value from M[0x100] into ACC
-                       ; (You'll need to put something at 0x100 manually or via data directive)
-    STR 0x1F1          ; Store ACC contents to MMIO Output Port 1
-    LDR 0x1F0          ; Read from MMIO Input Port 0 into ACC
-    STR 0x101          ; Store the input value into M[0x101]
-    HLT                ; Stop
-
-; --- Data Section ---
-; Assembler needs to handle data definition placement.
-; Let's assume assembler places this after HLT and resolves labels.
-VALUE1: DATA 0xABCD    ; Example data at address determined by assembler
-                       ; For manual assembly, put this at 0x100 for the code above.
-
-; Example data directive support (Placeholder for Assembler)
-.ORG 0x100
-    DATA 0xCAFE        ; Put CAFE at address 0x100 for the LDR example
-
-; Note: Simple assembler won't support .ORG or DATA yet.
-; Manually load 0xCAFE into memory[0x100] after assembly for the example.
-; Or modify the code to load an immediate value (which we also can't do easily to ACC!)
-
-; --- Revised Minimal I/O Example ---
-; Load immediate 42 into R0, store R0 to 0x100, LDR 0x100, STR to 0x1F1, LDR 0x1F0, HLT
-    MOV R0, R7, #42    ; R0 = 42 (Imm3 works for small values)
-    ; Need to get R0 into M[0x100] via ACC
-    ; Can't! Let's just load ACC with *something*
-    MOV R0, R7, #1     ; Use R0 = 1 as address for now
-    ; LDR R0           ; Load M[1] into ACC (Not LDR Address!)
-    ; Need LDR #Imm9 -> LDR Address
-
-    ; The provided ISA makes direct examples hard. Let's use the If/Else logic only.
-    MOV R1, R7, #5     ; R1 = 5
-    MOV R2, R7, #3     ; R2 = 3
-    CMP R1, R2         ; Compare R1, R2 -> Sets Flags
-    SETP GT, P0        ; P0=1 if R1 > R2
-    SETP LE, P1        ; P1=1 if R1 <= R2
-(P0) MOV R3, R7, #1    ; R3 = 1 if P0 set
-(P1) MOV R3, R7, #0    ; R3 = 0 if P1 set
-    HLT                ; Check R3 value in debugger
 `;
 });
