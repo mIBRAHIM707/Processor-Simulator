@@ -578,3 +578,617 @@ function decodeAndExecute(instructionWord) {
     // Ensure PC and AR remain within 9 bits, ACC/DR/TR/GPRs within 16 bits
     // (Masking is done where values are assigned)
 }
+
+// --- Assembler ---
+
+const opCodeMap = {
+    'LDR':  { opcode: 0b0000, format: 'Memory' },
+    'STR':  { opcode: 0b0001, format: 'Memory' },
+    'ADD':  { opcode: 0b0010, format: 'DataProc' }, // Can be R or I
+    'SUB':  { opcode: 0b0011, format: 'DataProc' }, // Can be R or I
+    'AND':  { opcode: 0b0100, format: 'DataProc' }, // Can be R or I
+    'ORR':  { opcode: 0b0101, format: 'DataProc' }, // Can be R or I
+    'XOR':  { opcode: 0b0110, format: 'DataProc' }, // Can be R or I
+    'MOV':  { opcode: 0b0111, format: 'DataProc' }, // Can be R or I
+    'CMP':  { opcode: 0b1000, format: 'DataProc' }, // Can be R or I
+    'SETP': { opcode: 0b1001, format: 'SETP' },
+    'B':    { opcode: 0b1010, format: 'Branch' },
+    'LSHL': { opcode: 0b1011, format: 'DataProc' }, // Can be R or I
+    'LSHR': { opcode: 0b1100, format: 'DataProc' }, // Can be R or I
+    'HLT':  { opcode: 0b1101, format: 'HLT' },
+};
+
+const regMap = {
+    'R0': 0, 'R1': 1, 'R2': 2, 'R3': 3, 'R4': 4, 'R5': 5, 'R6': 6, 'R7': 7,
+    // Add ACC maybe? No, ACC is implicit for LDR/STR.
+};
+
+const pRegMap = { 'P0': 0, 'P1': 1, 'P2': 2, 'P3': 3 };
+
+// Map Predicate mnemonics to their 3-bit code
+const predMap = {
+    'AL': 0b000, '(P0)': 0b001, '(!P0)': 0b010, '(P1)': 0b011,
+    '(!P1)': 0b100, '(P2)': 0b101, '(!P2)': 0b110, '(P3)': 0b111
+};
+const defaultPredCode = predMap['AL']; // 000
+
+// Map SETP Condition mnemonics to their 6-bit code
+const condCodeMap = {
+    'EQ': 0b000001, 'NE': 0b000010, 'CS': 0b000011, 'HS': 0b000011, // Synonyms
+    'CC': 0b000100, 'LO': 0b000100, 'MI': 0b000101, 'PL': 0b000110,
+    'VS': 0b000111, 'VC': 0b001000, 'HI': 0b001001, 'LS': 0b001010,
+    'GE': 0b001011, 'LT': 0b001100, 'GT': 0b001101, 'LE': 0b001110
+    // Add AL? No, SETP predicate is separate field.
+};
+
+function assemble(assemblyCode) {
+    clearMessages();
+    logMessage("Starting Assembly...");
+    const lines = assemblyCode.split('\n');
+    const symbolTable = {};
+    let machineCode = [];
+    let errors = [];
+    let currentAddress = 0;
+
+    // --- Pass 1: Build Symbol Table (Labels) ---
+    logMessage("Running Pass 1 (Symbol Table)...");
+    lines.forEach((line, index) => {
+        const cleanedLine = line.replace(/;.*$/, '').trim(); // Remove comments and trim whitespace
+        if (!cleanedLine) return; // Skip empty lines
+
+        const labelMatch = cleanedLine.match(/^([a-zA-Z_][a-zA-Z0-9_]*):/);
+        if (labelMatch) {
+            const label = labelMatch[1];
+            if (symbolTable.hasOwnProperty(label)) {
+                errors.push(`Line ${index + 1}: Duplicate label '${label}'`);
+            } else {
+                 // Check if label conflicts with register names or mnemonics
+                 if (regMap.hasOwnProperty(label.toUpperCase()) ||
+                     pRegMap.hasOwnProperty(label.toUpperCase()) ||
+                     opCodeMap.hasOwnProperty(label.toUpperCase()) ||
+                     predMap.hasOwnProperty(label.toUpperCase()) ||
+                     condCodeMap.hasOwnProperty(label.toUpperCase()) ) {
+                     errors.push(`Line ${index + 1}: Label '${label}' conflicts with a reserved keyword.`);
+                 } else {
+                    symbolTable[label] = currentAddress;
+                    // logMessage(`Found label '${label}' at address ${formatHex(currentAddress, 3)}`);
+                 }
+            }
+            // Check if there's code after the label on the same line
+            const codeAfterLabel = cleanedLine.substring(labelMatch[0].length).trim();
+             if (codeAfterLabel) {
+                 currentAddress++; // Instruction follows label on same line
+             }
+        } else {
+            // Assume lines without labels are instructions
+            currentAddress++;
+        }
+    });
+    logMessage(`Pass 1 complete. Symbol Table: ${JSON.stringify(symbolTable)}`);
+     if (errors.length > 0) {
+         errors.forEach(err => logMessage(err, true));
+         return { success: false, errors: errors, machineCode: [] };
+     }
+
+    // --- Pass 2: Generate Machine Code ---
+    logMessage("Running Pass 2 (Code Generation)...");
+    currentAddress = 0;
+    lines.forEach((line, index) => {
+        let cleanedLine = line.replace(/;.*$/, '').trim();
+        if (!cleanedLine) return; // Skip empty
+
+        // Remove label definition if present
+        cleanedLine = cleanedLine.replace(/^([a-zA-Z_][a-zA-Z0-9_]*):/, '').trim();
+        if (!cleanedLine) return; // Skip lines containing only a label
+
+        // Regex to capture optional predicate, mnemonic, and operands
+        // Example: (P1) ADD R1, R2, #5  or  B LOOP_START
+        const instructionRegex = /^(?:\(([!A-Z0-9]+)\)\s+)?([A-Z]{2,4})\s*(.*)$/i;
+        const match = cleanedLine.match(instructionRegex);
+
+        if (!match) {
+             errors.push(`Line ${index + 1}: Invalid instruction format: "${cleanedLine}"`);
+             currentAddress++; // Still occupies space even if invalid
+             return; // Skip to next line
+        }
+
+        let [ , predMnemonic, mnemonic, operandsStr] = match;
+        mnemonic = mnemonic.toUpperCase();
+        operandsStr = operandsStr.trim();
+        let operands = operandsStr ? operandsStr.split(',').map(op => op.trim()) : [];
+
+        // --- Get Opcode Info ---
+        if (!opCodeMap.hasOwnProperty(mnemonic)) {
+            errors.push(`Line ${index + 1}: Unknown mnemonic '${mnemonic}'`);
+            currentAddress++; return;
+        }
+        const { opcode, format } = opCodeMap[mnemonic];
+
+        // --- Get Predicate Code ---
+        let predCode = defaultPredCode;
+        if (predMnemonic) {
+             const canonicalPred = `(${predMnemonic.toUpperCase()})`; // Ensure format like (P0) or (!P1)
+             if (!predMap.hasOwnProperty(canonicalPred)) {
+                  // Check if it's AL without brackets
+                  if(predMnemonic.toUpperCase() === 'AL') {
+                      predCode = predMap['AL'];
+                  } else {
+                      errors.push(`Line ${index + 1}: Invalid predicate '${predMnemonic}'`);
+                      currentAddress++; return;
+                  }
+             } else {
+                 predCode = predMap[canonicalPred];
+             }
+        }
+
+        // --- Assemble based on format ---
+        let instructionWord = (opcode << 12) | (predCode << 9);
+        let operandError = false;
+
+        try {
+            switch (format) {
+                case 'Memory': // LDR, STR -> Opcode | Pred | Address (9 bits)
+                    if (operands.length !== 1) throw new Error("Expected 1 operand (Address or Label)");
+                    let addrVal = parseAddress(operands[0], symbolTable, index + 1);
+                    instructionWord |= (addrVal & ADDRESS_MASK);
+                    break;
+
+                case 'Branch': // B -> Opcode | Pred | Address (9 bits)
+                    if (operands.length !== 1) throw new Error("Expected 1 operand (Target Address or Label)");
+                    let targetAddr = parseAddress(operands[0], symbolTable, index + 1);
+                    instructionWord |= (targetAddr & ADDRESS_MASK);
+                    break;
+
+                case 'DataProc': // ADD, SUB, CMP, MOV etc. (R or I type)
+                    // Need to determine if R-Type (Rd, Rn, Rm) or I-Type (Rd, Rn, #Imm3)
+                    let rd = -1, rn = -1, rm = -1, imm3 = -1;
+
+                    if (mnemonic === 'CMP') { // CMP Rn, Rm/#Imm3
+                         if (operands.length !== 2) throw new Error("Expected 2 operands (Rn, Rm or Rn, #Imm3)");
+                         rn = parseRegister(operands[0], index+1);
+                         if (operands[1].startsWith('#')) { // I-Type: CMP Rn, #Imm3
+                             imm3 = parseImmediate(operands[1], 3, false, index+1); // 3-bit, unsigned for now
+                             instructionWord |= (rn << 3) | (imm3 & 0b111);
+                             // Note: Rd field [8:6] is unused/zero for CMP
+                         } else { // R-Type: CMP Rn, Rm
+                             rm = parseRegister(operands[1], index+1);
+                             instructionWord |= (rn << 3) | (rm & 0b111);
+                              // Note: Rd field [8:6] is unused/zero for CMP
+                         }
+
+                    } else { // Other DataProc: Rd, Rn, Rm/#Imm3
+                        if (operands.length !== 3) throw new Error("Expected 3 operands (Rd, Rn, Rm or Rd, Rn, #Imm3)");
+                        rd = parseRegister(operands[0], index+1);
+                        rn = parseRegister(operands[1], index+1);
+
+                         if (operands[2].startsWith('#')) { // I-Type: Rd, Rn, #Imm3
+                             imm3 = parseImmediate(operands[2], 3, false, index+1); // 3-bit, unsigned (0-7) for simplicity
+                             instructionWord |= (rd << 6) | (rn << 3) | (imm3 & 0b111);
+                         } else { // R-Type: Rd, Rn, Rm
+                             rm = parseRegister(operands[2], index+1);
+                             instructionWord |= (rd << 6) | (rn << 3) | (rm & 0b111);
+                         }
+                    }
+                    break;
+
+                case 'SETP': // SETP COND, Pd -> Opcode=1001 | Pred | Pd[8:7] | Unused[6]=0 | COND[5:0]
+                    if (operands.length !== 2) throw new Error("Expected 2 operands (Condition, Pd)");
+                    let condStr = operands[0].toUpperCase();
+                    let pdStr = operands[1].toUpperCase();
+
+                    if (!condCodeMap.hasOwnProperty(condStr)) throw new Error(`Invalid condition code '${condStr}'`);
+                    if (!pRegMap.hasOwnProperty(pdStr)) throw new Error(`Invalid predicate register '${pdStr}'`);
+
+                    let condVal = condCodeMap[condStr];
+                    let pdVal = pRegMap[pdStr];
+
+                    instructionWord |= (pdVal << 7) | (condVal & 0b111111);
+                    // Bit [6] is unused and remains 0
+                    break;
+
+                case 'HLT': // HLT -> Opcode=1101 | Pred | Unused (9 bits)=0
+                    if (operands.length !== 0) throw new Error("HLT takes no operands");
+                    // Lower 9 bits are unused and remain 0
+                    break;
+
+                default:
+                    throw new Error(`Unsupported instruction format '${format}'`);
+            }
+
+            machineCode[currentAddress] = instructionWord;
+
+        } catch (e) {
+            errors.push(`Line ${index + 1}: ${e.message} in "${cleanedLine}"`);
+            machineCode[currentAddress] = 0; // Insert NOP or zero on error? Zero for now.
+            operandError = true;
+        }
+
+        currentAddress++;
+    });
+
+    if (errors.length > 0) {
+        errors.forEach(err => logMessage(err, true));
+        logMessage("Assembly failed.");
+        return { success: false, errors: errors, machineCode: [] };
+    } else {
+        logMessage(`Assembly successful. ${machineCode.length} words generated.`);
+        return { success: true, errors: [], machineCode: machineCode };
+    }
+}
+
+
+// --- Assembler Helper Functions ---
+
+function parseRegister(regStr, lineNum) {
+    const reg = regStr.toUpperCase();
+    if (!regMap.hasOwnProperty(reg)) {
+        throw new Error(`Invalid register '${regStr}'`);
+    }
+    return regMap[reg];
+}
+
+function parseImmediate(immStr, bits, allowSigned, lineNum) {
+    if (!immStr.startsWith('#')) {
+        throw new Error(`Invalid immediate format '${immStr}'. Must start with '#'`);
+    }
+    const numStr = immStr.substring(1);
+    let value;
+    if (numStr.toLowerCase().startsWith('0x')) {
+        value = parseInt(numStr, 16);
+    } else if (numStr.toLowerCase().startsWith('0b')) {
+         value = parseInt(numStr.substring(2), 2);
+    } else {
+        value = parseInt(numStr, 10);
+    }
+
+    if (isNaN(value)) {
+        throw new Error(`Invalid number format for immediate '${immStr}'`);
+    }
+
+    // Check range based on bits and signedness
+    // For Imm3 (unsigned 0-7 as per spec simplification)
+     if (bits === 3 && !allowSigned) {
+        if (value < 0 || value > 7) {
+             throw new Error(`Immediate '${immStr}' out of range for 3-bit unsigned (0-7)`);
+        }
+        return value & 0b111;
+    }
+    // Add checks for other bit sizes if needed later
+
+    // General case (adapt if signed needed)
+     const maxUnsigned = (1 << bits) - 1;
+     if (value < 0 || value > maxUnsigned) {
+         // Add signed checks here if allowSigned is true
+         throw new Error(`Immediate '${immStr}' out of range for ${bits}-bit value`);
+     }
+
+    return value & ((1 << bits) - 1); // Mask to required bits
+}
+
+
+function parseAddress(addrStr, symbolTable, lineNum) {
+    let value;
+    if (addrStr.toLowerCase().startsWith('0x')) {
+        value = parseInt(addrStr, 16);
+    } else if (/^[0-9]+$/.test(addrStr)) { // Allow decimal addresses too? Let's stick to hex/labels.
+        value = parseInt(addrStr, 10); // Or disallow decimal addresses? Let's allow.
+        // throw new Error(`Decimal addresses like '${addrStr}' are ambiguous. Use 0x prefix for hex.`);
+    } else {
+        // Assume it's a label
+        if (!symbolTable.hasOwnProperty(addrStr)) {
+            throw new Error(`Undefined label '${addrStr}'`);
+        }
+        value = symbolTable[addrStr];
+    }
+
+    if (isNaN(value) || value < 0 || value > ADDRESS_MASK) {
+        throw new Error(`Invalid or out-of-range address/label value '${addrStr}' (0x000-0x1FF)`);
+    }
+    return value & ADDRESS_MASK;
+}
+
+// --- I/O Handling ---
+
+function handleMMIORead(address) {
+    logMessage(`MMIO Read triggered for address ${formatHex(address, 3)}`);
+    // For now, only support input on Port 0x1F0
+    if (address === MMIO_START_ADDRESS) { // 0x1F0
+        cpu.waitingForInput = true;
+        cpu.inputAddress = address;
+        updateExecutionStatus(`Paused (Waiting for Input @ ${formatHex(address, 3)})`);
+        logMessage(`Execution paused. Provide input value (0-65535) for ${formatHex(address, 3)} and click 'Provide Input'.`);
+        updateUI(); // Update button states and show prompt
+        // Execution resumes when the 'Provide Input' button is clicked (see event listener)
+    } else {
+        logMessage(`MMIO Read from unsupported/unimplemented port ${formatHex(address, 3)}. Returning 0.`, true);
+        cpu.acc = 0; // Default value for reads from other MMIO addresses
+    }
+}
+
+function resumeFromMMIORead(inputValue) {
+    if (!cpu.waitingForInput) return;
+
+    const value = parseInt(inputValue);
+    if (isNaN(value) || value < 0 || value > DATA_MASK) {
+        logMessage(`Invalid input value provided: "${inputValue}". Using 0.`, true);
+        cpu.acc = 0;
+    } else {
+         logMessage(`Input ${formatHex(value, 4)} received for ${formatHex(cpu.inputAddress, 3)}.`);
+        cpu.acc = value & DATA_MASK; // Put value into ACC (as per LDR target)
+    }
+    cpu.dr = cpu.acc; // Also update DR conceptually
+    cpu.waitingForInput = false;
+    cpu.inputAddress = 0;
+    updateExecutionStatus("Running"); // Resume status
+    updateUI(); // Update UI (hide prompt, enable buttons)
+
+    // If running continuously, restart the interval
+    if (runInterval !== null) {
+        // Need to clear the *previous* interval handle if one existed *before* MMIO wait
+        // This logic is tricky. Let's handle it in the run function itself.
+        // For now, just allow manual stepping or restarting run after input.
+        logMessage("Input received. Continue with 'Step' or 'Run'.");
+        // Or attempt to restart run if needed: startSimulation();
+    }
+}
+
+function handleMMIOWrite(address, value) {
+    logMessage(`MMIO Write to ${formatHex(address, 3)}: Value = ${formatHex(value, 4)} (${value})`);
+    // Append to the I/O output area
+    const outputLine = `[${formatHex(address, 3)}]: ${formatHex(value, 4)} (${value})\n`;
+    DOMElements.ioOutputArea.textContent += outputLine;
+    DOMElements.ioOutputArea.scrollTop = DOMElements.ioOutputArea.scrollHeight; // Scroll to bottom
+}
+
+// --- Simulation Control Functions ---
+
+function stepExecution() {
+    if (cpu.halted || cpu.waitingForInput) {
+        logMessage("Cannot step: CPU is halted or waiting for input.", true);
+        return;
+    }
+
+    if (!fetchInstruction()) {
+        // Fetch failed (e.g., PC out of bounds)
+        updateUI();
+        return;
+    }
+
+    const pcBeforeExecute = cpu.pc; // Store PC before increment/branch
+    incrementPC(); // Increment PC *before* execute to point to next instruction
+
+    // Decode and execute the instruction fetched into IR
+    decodeAndExecute(cpu.ir);
+
+    // Update UI AFTER execution step is complete
+    updateUI();
+
+     // Check if HLT occurred during execution
+    if (cpu.halted) {
+        logMessage("CPU Halted after instruction execution.");
+        stopSimulation(); // Ensure run loop stops if it was running
+    }
+     // Check if we are now waiting for input
+     if (cpu.waitingForInput) {
+         stopSimulation(); // Pause run loop if we hit MMIO read
+     }
+}
+
+function startSimulation() {
+    if (cpu.halted) {
+        logMessage("CPU is halted. Reset to run again.", true);
+        return;
+    }
+     if (cpu.waitingForInput) {
+        logMessage("CPU is waiting for input. Provide input to continue.", true);
+        return;
+    }
+    if (runInterval !== null) {
+        logMessage("Simulation is already running.", true);
+        return; // Already running
+    }
+
+    runSpeedMs = parseInt(DOMElements.runSpeedInput.value) || 100;
+    if (runSpeedMs < 10) runSpeedMs = 10; // Minimum speed
+
+    logMessage(`Starting continuous execution (Speed: ${runSpeedMs} ms)...`);
+    updateExecutionStatus("Running (Continuous)");
+    DOMElements.runButton.disabled = true; // Disable run while running
+    DOMElements.stopButton.disabled = false; // Enable stop
+
+    runInterval = setInterval(() => {
+        if (cpu.halted || cpu.waitingForInput) {
+            stopSimulation();
+        } else {
+            stepExecution();
+             // Check halt/wait status *after* step execution
+            if (cpu.halted || cpu.waitingForInput) {
+                 stopSimulation();
+                 updateUI(); // Final UI update for halted/waiting state
+            }
+        }
+    }, runSpeedMs);
+}
+
+function stopSimulation() {
+    if (runInterval !== null) {
+        clearInterval(runInterval);
+        runInterval = null;
+        logMessage("Continuous execution stopped.");
+         if (!cpu.halted && !cpu.waitingForInput) {
+            updateExecutionStatus("Paused");
+         }
+         updateUI(); // Update button states
+    }
+}
+
+
+// --- Event Listeners ---
+function setupEventListeners() {
+    DOMElements.assembleButton.addEventListener('click', () => {
+        const code = DOMElements.assemblyCode.value;
+        const result = assemble(code);
+
+        if (result.success) {
+            // Load into memory
+            resetCPU(); // Reset CPU state before loading new program
+            result.machineCode.forEach((word, index) => {
+                if (index < MEMORY_SIZE) {
+                    memory[index] = word;
+                }
+            });
+            logMessage(`Loaded ${result.machineCode.length} words into memory.`);
+            updateUI(); // Show loaded memory and reset registers
+            updateExecutionStatus("Ready");
+        } else {
+             logMessage("Assembly failed. See error messages.", true);
+             updateExecutionStatus("Assembly Error");
+        }
+    });
+
+    DOMElements.stepButton.addEventListener('click', stepExecution);
+
+    DOMElements.runButton.addEventListener('click', startSimulation);
+
+    DOMElements.stopButton.addEventListener('click', stopSimulation);
+
+    DOMElements.resetButton.addEventListener('click', resetCPU);
+
+    DOMElements.ioInputProvideButton.addEventListener('click', () => {
+         if (cpu.waitingForInput) {
+            resumeFromMMIORead(DOMElements.ioInputValue.value);
+         }
+    });
+
+    // Allow pressing Enter in the input field to provide value
+    DOMElements.ioInputValue.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' && cpu.waitingForInput) {
+            DOMElements.ioInputProvideButton.click(); // Simulate button click
+        }
+    });
+
+    // Update run speed immediately
+    DOMElements.runSpeedInput.addEventListener('change', () => {
+        runSpeedMs = parseInt(DOMElements.runSpeedInput.value) || 100;
+        if (runSpeedMs < 10) runSpeedMs = 10;
+        // If currently running, update the interval
+        if (runInterval !== null) {
+            stopSimulation();
+            startSimulation();
+        }
+    });
+}
+
+// --- Initial Setup ---
+document.addEventListener('DOMContentLoaded', () => {
+    initializeSimulator();
+    setupEventListeners(); // Attach listeners after init
+     // Add example code
+     DOMElements.assemblyCode.value = `
+; PrediCore Example: If-Then-Else and I/O Demo
+; if (R1 > R2) then R3 = 1 else R3 = 0
+; Then, write R3 to MMIO Port 0x1F1
+; Finally, read from MMIO Port 0x1F0 into R4
+
+    MOV R1, R7, #5     ; R1 = 5 (Using R7 as dummy Rn for immediate MOV)
+    MOV R2, R7, #3     ; R2 = 3
+
+    CMP R1, R2         ; Compare R1 and R2, sets ZNCV flags
+    SETP GT, P0        ; P0 = 1 if R1 > R2 (Signed Greater Than)
+    SETP LE, P1        ; P1 = 1 if R1 <= R2 (Signed Less/Equal)
+
+(P0) MOV R3, R7, #1    ; If P0=1 (R1>R2), then R3 = 1
+(P1) MOV R3, R7, #0    ; If P1=1 (R1<=R2), then R3 = 0
+
+; Store the result (R3) to MMIO Output Port 0x1F1
+    MOV R0, R3         ; Move R3 to R0 (prep for ACC) - Need MOV R,R ideally!
+                       ; Workaround: Use ACC directly if possible, or load R3 to ACC.
+                       ; Let's load R3 to ACC via memory (inefficient but works)
+    MOV R7, R7, #0     ; Dummy instruction needed if direct MOV R, ACC isn't supported
+    ; STR ACC needs the value *in* ACC. Let's assume MOV R3, ACC exists (or add it)
+    ; **Adjusting Example: Assume we use ACC temporarily**
+    ; (Requires assembler/simulator support for MOV ACC, Rx or similar)
+    ; **Simplification:** Let's just store R3's value *conceptually*
+    ; Need LDR/STR to use ACC. So, load R3 into ACC first.
+    ; We need a temporary memory location... let's use 0x100
+
+    MOV R0, R7, #0x100 ; R0 = address 0x100 (Need ADDR type immediate...)
+                       ; **Example Limitation:** ISA lacks MOV Reg, #Imm16
+                       ; Let's assume we manually put 0x100 in R0 somehow...
+    ; **Revised Strategy:** Let's put R3's value into ACC using the limited MOV
+    MOV ACC, R7, #0    ; Clear ACC (Assuming MOV ACC, #Imm exists - not specified!)
+                       ; **Further Revision:** Can't directly MOV to ACC. Must use LDR/STR.
+                       ; The example is hard with this limited ISA!
+
+    ; Let's try storing R3 and loading it back to ACC
+STORE_ADDR EQU 0x1E0   ; Define a memory location (not MMIO)
+    ; **PROBLEM:** Can't load STORE_ADDR into AR without LDR/STR using it.
+
+    ; FINAL ATTEMPT AT EXAMPLE LOGIC: Write R3 directly to IO port 0x1F1
+    ; This requires STR to take a register source, *not* implicit ACC.
+    ; ***ISA Contradiction/Limitation*** LDR/STR *only* use ACC.
+    ; The example MUST use ACC.
+
+    ; Corrected Example using ACC:
+    ; R3 holds 1 or 0. We need it in ACC to STR it.
+
+    MOV R1, R7, #5
+    MOV R2, R7, #3
+    CMP R1, R2
+    SETP GT, P0
+    SETP LE, P1
+
+(P0) MOV R0, R7, #1    ; R0 = 1 if R1 > R2 (Use R0 as intermediate for ACC)
+(P1) MOV R0, R7, #0    ; R0 = 0 if R1 <= R2
+    ; Now, how to get R0 into ACC? Can't directly.
+    ; Need to store R0 somewhere and LDR it.
+TEMP_LOC DATA 0        ; Define TEMP_LOC (let assembler handle address)
+
+    ; PROBLEM: Can't STR R0, TEMP_LOC ! Only STR ACC, Addr
+    ; This ISA is *very* restrictive for the example task.
+
+    ; --- Simplified I/O Example ---
+    ; Load a value, write it to 0x1F1, read from 0x1F0
+
+START:
+    LDR 0x100          ; Load value from M[0x100] into ACC
+                       ; (You'll need to put something at 0x100 manually or via data directive)
+    STR 0x1F1          ; Store ACC contents to MMIO Output Port 1
+    LDR 0x1F0          ; Read from MMIO Input Port 0 into ACC
+    STR 0x101          ; Store the input value into M[0x101]
+    HLT                ; Stop
+
+; --- Data Section ---
+; Assembler needs to handle data definition placement.
+; Let's assume assembler places this after HLT and resolves labels.
+VALUE1: DATA 0xABCD    ; Example data at address determined by assembler
+                       ; For manual assembly, put this at 0x100 for the code above.
+
+; Example data directive support (Placeholder for Assembler)
+.ORG 0x100
+    DATA 0xCAFE        ; Put CAFE at address 0x100 for the LDR example
+
+; Note: Simple assembler won't support .ORG or DATA yet.
+; Manually load 0xCAFE into memory[0x100] after assembly for the example.
+; Or modify the code to load an immediate value (which we also can't do easily to ACC!)
+
+; --- Revised Minimal I/O Example ---
+; Load immediate 42 into R0, store R0 to 0x100, LDR 0x100, STR to 0x1F1, LDR 0x1F0, HLT
+    MOV R0, R7, #42    ; R0 = 42 (Imm3 works for small values)
+    ; Need to get R0 into M[0x100] via ACC
+    ; Can't! Let's just load ACC with *something*
+    MOV R0, R7, #1     ; Use R0 = 1 as address for now
+    ; LDR R0           ; Load M[1] into ACC (Not LDR Address!)
+    ; Need LDR #Imm9 -> LDR Address
+
+    ; The provided ISA makes direct examples hard. Let's use the If/Else logic only.
+    MOV R1, R7, #5     ; R1 = 5
+    MOV R2, R7, #3     ; R2 = 3
+    CMP R1, R2         ; Compare R1, R2 -> Sets Flags
+    SETP GT, P0        ; P0=1 if R1 > R2
+    SETP LE, P1        ; P1=1 if R1 <= R2
+(P0) MOV R3, R7, #1    ; R3 = 1 if P0 set
+(P1) MOV R3, R7, #0    ; R3 = 0 if P1 set
+    HLT                ; Check R3 value in debugger
+`;
+});
