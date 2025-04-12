@@ -523,26 +523,23 @@ const opCodeMap = {
 
 const regMap = {
     'R0': 0, 'R1': 1, 'R2': 2, 'R3': 3, 'R4': 4, 'R5': 5, 'R6': 6, 'R7': 7,
-    // Add ACC maybe? No, ACC is implicit for LDR/STR.
 };
 
 const pRegMap = { 'P0': 0, 'P1': 1, 'P2': 2, 'P3': 3 };
 
-// Map Predicate mnemonics to their 3-bit code
 const predMap = {
     'AL': 0b000, '(P0)': 0b001, '(!P0)': 0b010, '(P1)': 0b011,
     '(!P1)': 0b100, '(P2)': 0b101, '(!P2)': 0b110, '(P3)': 0b111
 };
-const defaultPredCode = predMap['AL']; // 000
+const defaultPredCode = predMap['AL'];
 
-// Map SETP Condition mnemonics to their 6-bit code
 const condCodeMap = {
-    'EQ': 0b000001, 'NE': 0b000010, 'CS': 0b000011, 'HS': 0b000011, // Synonyms
+    'EQ': 0b000001, 'NE': 0b000010, 'CS': 0b000011, 'HS': 0b000011,
     'CC': 0b000100, 'LO': 0b000100, 'MI': 0b000101, 'PL': 0b000110,
     'VS': 0b000111, 'VC': 0b001000, 'HI': 0b001001, 'LS': 0b001010,
     'GE': 0b001011, 'LT': 0b001100, 'GT': 0b001101, 'LE': 0b001110
-    // Add AL? No, SETP predicate is separate field.
 };
+
 
 function assemble(assemblyCode) {
     clearMessages();
@@ -552,7 +549,7 @@ function assemble(assemblyCode) {
     let machineCode = []; // Build dynamically
     let formatInfo = [];  // Build dynamically
     let errors = [];
-    let currentAddress = 0; // Tracks current address during generation
+    let currentAddress = 0; // Tracks current address *during generation* in Pass 2
     let pass1Errors = []; // Separate errors for Pass 1
 
     // --- Pass 1: Build Symbol Table ONLY ---
@@ -568,8 +565,12 @@ function assemble(assemblyCode) {
             if (symbolTable.hasOwnProperty(label)) {
                 pass1Errors.push(`Line ${index + 1}: Duplicate label '${label}'`);
             } else {
-                 // Check conflicts... (omitted for brevity, same as before)
-                 if (regMap.hasOwnProperty(label.toUpperCase()) || /* ... other checks ... */ condCodeMap.hasOwnProperty(label.toUpperCase())) {
+                 // Check conflicts
+                 if (regMap.hasOwnProperty(label.toUpperCase()) ||
+                     pRegMap.hasOwnProperty(label.toUpperCase()) ||
+                     opCodeMap.hasOwnProperty(label.toUpperCase()) ||
+                     predMap.hasOwnProperty(label.toUpperCase()) ||
+                     condCodeMap.hasOwnProperty(label.toUpperCase()) ) {
                     pass1Errors.push(`Line ${index + 1}: Label '${label}' conflicts with a reserved keyword.`);
                  } else {
                     symbolTable[label] = addressCounterP1; // Assign current address
@@ -601,7 +602,7 @@ function assemble(assemblyCode) {
     // --- Pass 2: Generate Machine Code & Format Info ---
     logMessage("Running Pass 2 (Code Generation)...");
     errors = []; // Reset errors for Pass 2
-    currentAddress = 0; // Tracks the index for machineCode/formatInfo arrays
+    currentAddress = 0; // Tracks the index for machineCode/formatInfo arrays being pushed
 
     lines.forEach((line, index) => {
         let originalLine = line;
@@ -609,29 +610,29 @@ function assemble(assemblyCode) {
         if (!cleanedLine) return; // Skip empty
 
         const isLabelOnlyLine = cleanedLine.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*$/); // Check if ONLY a label
-        cleanedLine = cleanedLine.replace(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*:/, '').trim(); // Remove label def
+        const labelRemovedLine = cleanedLine.replace(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*:/, '').trim(); // Remove label def for parsing instr
 
-        if (!cleanedLine || isLabelOnlyLine) {
+        if (!labelRemovedLine || isLabelOnlyLine) {
             return; // Skip lines with only labels or empty after label removal
         }
 
         // --- Process potential instruction on this line ---
         const instructionRegex = /^(?:\(([!A-Z0-9]+)\)\s+)?([A-Z]{2,4})\s*(.*)$/i;
-        const match = cleanedLine.match(instructionRegex);
+        const match = labelRemovedLine.match(instructionRegex); // Use line with label removed
 
         let generatedWord = 0; // Default word on error
         let specificFormat = "ERROR"; // Default format on error
         let hasErrorOnLine = false;
 
         if (!match) {
-             if (cleanedLine) {
+             if (labelRemovedLine) { // Error only if there was content to parse
                   errors.push(`Line ${index + 1}: Invalid instruction format: "${originalLine.trim()}"`);
                   hasErrorOnLine = true;
              }
         } else {
             let [ , predMnemonic, mnemonic, operandsStr] = match;
             mnemonic = mnemonic.toUpperCase();
-            operandsStr = operandsStr.trim();
+            operandsStr = operandsStr.trim(); // Trim the captured operands string
 
             if (!opCodeMap.hasOwnProperty(mnemonic)) {
                 errors.push(`Line ${index + 1}: Unknown mnemonic '${mnemonic}'`);
@@ -647,64 +648,80 @@ function assemble(assemblyCode) {
                      } else { predCode = predMap[canonicalPred]; }
                  }
 
-                let operands = [];
-                if (operandsStr && !hasErrorOnLine) { // Don't parse operands if predicate was bad
-                    operands = operandsStr.split(',').map(op => op.trim()).filter(op => op.length > 0);
-                }
-
                 let instructionWord = (opcode << 12) | (predCode << 9);
                 specificFormat = "UNKNOWN"; // Reset before try
 
-                if (!hasErrorOnLine) { // Only try if mnemonic/predicate were ok so far
+                if (!hasErrorOnLine) {
                     try {
-                        let addrVal, rd, rn, rm, imm3, condStr, pdStr, condVal, pdVal; // Declare inside try
+                        let addrVal, rd, rn, rm, imm3, condStr, pdStr, condVal, pdVal; // Declare vars
 
                         switch (baseFormat) {
                             case 'Memory':
                                 specificFormat = "MEMORY";
-                                if (operands.length !== 1) throw new Error(`Expected 1 operand (Address or Label), found ${operands.length}`);
-                                addrVal = parseAddress(operands[0], symbolTable, index + 1);
+                                if (!operandsStr) throw new Error(`Expected 1 operand (Address or Label), found none.`);
+                                addrVal = parseAddress(operandsStr, symbolTable, index + 1);
                                 instructionWord |= (addrVal & ADDRESS_MASK);
                                 break;
+
                             case 'Branch':
+                                case 'Branch':
                                 specificFormat = "BRANCH";
-                                if (operands.length !== 1) throw new Error(`Expected 1 operand (Target Address or Label), found ${operands.length}`);
-                                addrVal = parseAddress(operands[0], symbolTable, index + 1);
+                                // ** Refined Check **
+                                // operandsStr contains everything after the mnemonic B
+                                // It should just be the label. Check if it's empty or looks invalid.
+                                if (!operandsStr) {
+                                    throw new Error(`Expected 1 operand (Target Address or Label), found none.`);
+                                }
+                                // Trim again just in case regex captured extra space
+                                const targetLabelOrAddr = operandsStr.trim();
+                                if (!targetLabelOrAddr) { // Check after trimming
+                                    throw new Error(`Expected 1 operand (Target Address or Label), found empty string.`);
+                                }
+                                // Optional: Add a check for invalid characters?
+                                // if (/[^a-zA-Z0-9_#x]/.test(targetLabelOrAddr)) { // Basic check for allowed chars in labels/hex/dec
+                                //    throw new Error(`Invalid characters in Branch target '${targetLabelOrAddr}'`);
+                                // }
+
+                                addrVal = parseAddress(targetLabelOrAddr, symbolTable, index + 1); // Use the cleaned target
                                 instructionWord |= (addrVal & ADDRESS_MASK);
                                 break;
+
                             case 'DataProc':
+                                // Needs comma splitting
+                                let operandsDP = operandsStr ? operandsStr.split(',').map(op => op.trim()).filter(op => op.length > 0) : [];
                                 if (mnemonic === 'CMP') {
-                                     if (operands.length !== 2) throw new Error(`Expected 2 operands (Rn, Rm or Rn, #Imm3), found ${operands.length}`);
-                                     rn = parseRegister(operands[0], index+1);
-                                     if (operands[1].startsWith('#')) {
+                                     if (operandsDP.length !== 2) throw new Error(`Expected 2 operands (Rn, Rm or Rn, #Imm3), found ${operandsDP.length}`);
+                                     rn = parseRegister(operandsDP[0], index+1);
+                                     if (operandsDP[1].startsWith('#')) {
                                          specificFormat = "I_CMP";
-                                         imm3 = parseImmediate(operands[1], 3, false, index+1);
+                                         imm3 = parseImmediate(operandsDP[1], 3, false, index+1);
                                          instructionWord |= (rn << 3) | (imm3 & 0b111);
                                      } else {
                                          specificFormat = "R_CMP";
-                                         rm = parseRegister(operands[1], index+1);
+                                         rm = parseRegister(operandsDP[1], index+1);
                                          instructionWord |= (rn << 3) | (rm & 0b111);
                                      }
-                                } else {
-                                    if (operands.length !== 3) throw new Error(`Expected 3 operands (Rd, Rn, Rm or Rd, Rn, #Imm3), found ${operands.length}`);
-                                    rd = parseRegister(operands[0], index+1);
-                                    rn = parseRegister(operands[1], index+1);
-                                     if (operands[2].startsWith('#')) {
+                                } else { // Other DataProc
+                                    if (operandsDP.length !== 3) throw new Error(`Expected 3 operands (Rd, Rn, Rm or Rd, Rn, #Imm3), found ${operandsDP.length}`);
+                                    rd = parseRegister(operandsDP[0], index+1);
+                                    rn = parseRegister(operandsDP[1], index+1);
+                                     if (operandsDP[2].startsWith('#')) {
                                          specificFormat = (mnemonic === 'MOV') ? "I_MOV" : "I_ALU";
-                                         imm3 = parseImmediate(operands[2], 3, false, index+1);
+                                         imm3 = parseImmediate(operandsDP[2], 3, false, index+1);
                                          instructionWord |= (rd << 6) | (rn << 3) | (imm3 & 0b111);
                                      } else {
                                          specificFormat = (mnemonic === 'MOV') ? "R_MOV" : "R_ALU";
-                                         rm = parseRegister(operands[2], index+1);
+                                         rm = parseRegister(operandsDP[2], index+1);
                                          instructionWord |= (rd << 6) | (rn << 3) | (rm & 0b111);
                                      }
                                 }
                                 break;
                             case 'SETP':
                                 specificFormat = "SETP";
-                                if (operands.length !== 2) throw new Error(`Expected 2 operands (Condition, Pd), found ${operands.length}`);
-                                condStr = operands[0].toUpperCase();
-                                pdStr = operands[1].toUpperCase();
+                                let operandsSETP = operandsStr ? operandsStr.split(',').map(op => op.trim()).filter(op => op.length > 0) : [];
+                                if (operandsSETP.length !== 2) throw new Error(`Expected 2 operands (Condition, Pd), found ${operandsSETP.length}`);
+                                condStr = operandsSETP[0].toUpperCase();
+                                pdStr = operandsSETP[1].toUpperCase();
                                 if (!condCodeMap.hasOwnProperty(condStr)) throw new Error(`Invalid condition code '${condStr}'`);
                                 if (!pRegMap.hasOwnProperty(pdStr)) throw new Error(`Invalid predicate register '${pdStr}'`);
                                 condVal = condCodeMap[condStr];
@@ -713,7 +730,7 @@ function assemble(assemblyCode) {
                                 break;
                             case 'HLT':
                                 specificFormat = "HLT";
-                                if (operands.length !== 0) throw new Error(`HLT takes no operands, found ${operands.length}`);
+                                if (operandsStr) throw new Error(`HLT takes no operands, found '${operandsStr}'`);
                                 break;
                             default:
                                 throw new Error(`Internal Assembler Error: Unknown base format '${baseFormat}'`);
@@ -721,7 +738,7 @@ function assemble(assemblyCode) {
                         generatedWord = instructionWord; // Success
                     } catch (e) {
                         errors.push(`Line ${index + 1}: ${e.message} in "${originalLine.trim()}"`);
-                        specificFormat = "ERROR"; // Ensure format reflects error
+                        specificFormat = "ERROR";
                         hasErrorOnLine = true;
                     }
                 } // end if !hasErrorOnLine (parsing part)
@@ -731,31 +748,39 @@ function assemble(assemblyCode) {
         // --- Add results for this instruction line ---
         machineCode.push(generatedWord);
         formatInfo.push(specificFormat);
-        currentAddress++; // Increment address counter for this generated instruction
+        currentAddress++; // Increment generated instruction counter
 
         // Check bounds dynamically
         if (currentAddress > MEMORY_SIZE) {
              errors.push(`Assembly Error: Program has exceeded memory size ${MEMORY_SIZE}`);
-             // Optional: break loop early?
+             // Optional: break loop early if too big?
+             // For now, let it report all errors but return failure
         }
     }); // End forEach line
 
     // Final check and return
     if (errors.length > 0) {
-        errors.forEach(err => logMessage(err, true));
+        // Filter out errors related to exceeding memory if that was the primary issue
+        const nonBoundsErrors = errors.filter(e => !e.startsWith("Assembly Error: Program has exceeded"));
+         if (nonBoundsErrors.length > 0) {
+             nonBoundsErrors.forEach(err => logMessage(err, true));
+         }
+         // Always log the bounds error if it occurred
+         errors.filter(e => e.startsWith("Assembly Error: Program has exceeded")).forEach(err => logMessage(err, true));
+
         logMessage("Assembly failed.");
         return { success: false, errors: errors, machineCode: [], formatInfo: [] };
-    } else if (currentAddress !== totalInstructions) {
-         // Sanity check: Number of instructions generated should match Pass 1 count
+
+    } else if (currentAddress !== totalInstructions && totalInstructions <= MEMORY_SIZE) {
+         // Check only if within bounds; otherwise size mismatch is expected
          logMessage(`Warning: Pass 1 count (${totalInstructions}) differs from Pass 2 generated count (${currentAddress}). Check assembly logic.`, true);
-         // Continue anyway, but might indicate a bug
-         return { success: true, errors: [], machineCode: machineCode, formatInfo: formatInfo };
+         return { success: true, errors: [], machineCode: machineCode, formatInfo: formatInfo }; // Still success, but warn
     }
     else {
         logMessage(`Assembly successful. ${machineCode.length} words generated.`);
         return { success: true, errors: [], machineCode: machineCode, formatInfo: formatInfo };
     }
-}
+} // End of assemble function
 
 // --- Assembler Helper Functions ---
 
