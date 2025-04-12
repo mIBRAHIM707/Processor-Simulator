@@ -1192,3 +1192,516 @@ VALUE1: DATA 0xABCD    ; Example data at address determined by assembler
     HLT                ; Check R3 value in debugger
 `;
 });
+
+// --- Automated Testing Framework ---
+
+const testCases = [
+    // --- Test Case 1 ---
+    {
+        name: "Basic Immediate ALU",
+        assembly: `
+            MOV R0, R7, #5     ; R0 = 5
+            MOV R1, R7, #7     ; R1 = 7
+            ADD R2, R0, #2     ; R2 = R0 + 2 = 7
+            SUB R3, R1, #4     ; R3 = R1 - 4 = 3
+            HLT
+        `,
+        expected: {
+            registers: { r0: 5, r1: 7, r2: 7, r3: 3, pc: 0x005 },
+            flags: { z: 0, n: 0, c: 0, v: 0 }, // Unchanged default
+            p_file: { p0: 0, p1: 0, p2: 0, p3: 0 },
+            status: "Halted"
+        }
+    },
+    // --- Test Case 2 (Corrected MOV syntax) ---
+    {
+        name: "Basic Register ALU (Corrected MOV)",
+        assembly: `
+            MOV R0, R7, #6     ; R0 = 6 (I-Type)
+            MOV R1, R7, #3     ; R1 = 3 (I-Type)
+            ADD R2, R0, R1     ; R2 = R0 + R1 = 9 (R-Type)
+            SUB R3, R0, R1     ; R3 = R0 - R1 = 3 (R-Type)
+            AND R4, R0, R1     ; R4 = 2 (R-Type)
+            ORR R5, R0, R1     ; R5 = 7 (R-Type)
+            XOR R6, R0, R1     ; R6 = 5 (R-Type)
+            MOV R7, R0, R0     ; R7 = R0 = 6 (R-Type: Rd=R7, Rn=R0, Rm=R0)
+            HLT
+        `,
+        // IMPORTANT: This test's MOV R7, R0, R0 will only pass if you implement
+        // the R-Type MOV logic in decodeAndExecute as discussed previously.
+        // If MOV still only simulates I-Type, R7 will be 0.
+        expected: {
+             registers: { r0: 6, r1: 3, r2: 9, r3: 3, r4: 2, r5: 7, r6: 5, r7: 6, pc: 0x009 }, // Assuming R-Type MOV simulation works
+            // registers: { r0: 6, r1: 3, r2: 9, r3: 3, r4: 2, r5: 7, r6: 5, r7: 0, pc: 0x009 }, // If only I-Type MOV simulation
+            flags: { z: 0, n: 0, c: 0, v: 0 },
+            p_file: { p0: 0, p1: 0, p2: 0, p3: 0 },
+            status: "Halted"
+        }
+    },
+    // --- Test Case 3 ---
+    {
+        name: "Memory LDR/STR",
+        assembly: `
+            LDR 0x050          ; ACC = M[0x050] = 0xABCD
+            ADD R0, R7, #1     ; R0 = 1
+            STR 0x051          ; M[0x051] = ACC = 0xABCD
+            LDR 0x051          ; ACC = M[0x051] = 0xABCD
+            HLT
+        `,
+        preconditions: { // State BEFORE running this specific test code
+            memory: { 0x050: 0xABCD }
+        },
+        expected: {
+            registers: { r0: 1, pc: 0x005 },
+            acc: 0xABCD,
+            memory: { 0x050: 0xABCD, 0x051: 0xABCD },
+            status: "Halted"
+        }
+    },
+     // --- Test Case 4 ---
+    {
+        name: "CMP Flags (Equality)",
+        assembly: `
+            MOV R0, R7, #9
+            MOV R1, R7, #9
+            CMP R0, R1         ; Compare 9, 9. Z=1.
+            HLT
+        `,
+        expected: {
+            registers: { r0: 9, r1: 9, pc: 0x004 },
+            flags: { z: 1, n: 0, c: 1, v: 0 },
+            status: "Halted"
+        }
+    },
+    // --- Test Case 5 ---
+     {
+        name: "CMP Flags (Less Than)",
+        assembly: `
+            MOV R0, R7, #3
+            MOV R1, R7, #5
+            CMP R0, R1         ; Compare 3, 5. N=1, C=0.
+            HLT
+        `,
+        expected: {
+            registers: { r0: 3, r1: 5, pc: 0x004 },
+            flags: { z: 0, n: 1, c: 0, v: 0 },
+            status: "Halted"
+        }
+    },
+    // --- Test Case 6 ---
+     {
+        name: "SETP and Predication",
+        assembly: `
+            MOV R0, R7, #5
+            MOV R1, R7, #10
+            CMP R0, R1         ; 5<10 -> N=1, C=0. LT true(P0), GT false(P1)
+            SETP LT, P0
+            SETP GT, P1
+            MOV R2, R7, #100
+            (P0) ADD R2, R2, #1  ; Exec: R2 = 101
+            (P1) ADD R2, R2, #10 ; Skip: R2 = 101
+            (!P1) SUB R2, R2, #5 ; Exec: R2 = 96
+            (!P0) ADD R2, R2, #20; Skip: R2 = 96
+             AL ADD R2, R2, #2   ; Exec: R2 = 98
+            HLT
+        `,
+        expected: {
+            registers: { r0: 5, r1: 10, r2: 98, pc: 0x00B },
+            flags: { z: 0, n: 1, c: 0, v: 0 }, // From CMP
+            p_file: { p0: 1, p1: 0 }, // From SETP
+            status: "Halted"
+        }
+    },
+    // --- Test Case 7 ---
+    {
+        name: "Branching (Conditional/Unconditional)",
+        assembly: `
+            MOV R0, R7, #0
+            B ALWAYS_BRANCH
+            ADD R0, R0, #1     ; Skipped
+        ALWAYS_BRANCH:
+            ADD R0, R0, #10    ; R0 = 10
+            MOV R1, R7, #10
+            CMP R0, R1         ; Z=1
+            SETP EQ, P3        ; P3=1
+            SETP NE, P2        ; P2=0
+            (P2) B SKIP_TARGET ; Skip branch
+            ADD R0, R0, #5     ; Exec: R0 = 15
+            (P3) B HIT_TARGET  ; Exec branch
+            ADD R0, R0, #20    ; Skipped
+        SKIP_TARGET:
+            ADD R0, R0, #100   ; Skipped
+        HIT_TARGET:
+            SUB R0, R0, #3     ; R0 = 12
+            HLT
+        `,
+        expected: {
+            registers: { r0: 12, r1: 10, pc: 0x00E }, // PC is addr of HLT + 1
+            flags: { z: 1, n: 0, c: 1, v: 0 },
+            p_file: { p2: 0, p3: 1 },
+            status: "Halted"
+        }
+    },
+    // --- Test Case 8 (MMIO Write only - Read requires interaction) ---
+    {
+        name: "MMIO Write",
+        assembly: `
+            LDR 0x0A0          ; ACC = 0xBEEF
+            STR 0x1F1          ; Write ACC to Output Port 0x1F1
+            HLT
+        `,
+        preconditions: { memory: { 0x0A0: 0xBEEF } },
+        maxSteps: 20, // Add max steps to prevent infinite loops
+        // Cannot easily test I/O Output log content automatically here
+        // but we can test the state before HLT
+        expected: {
+            registers: { pc: 0x003 },
+            acc: 0xBEEF,
+            status: "Halted"
+        }
+    },
+     // --- Test Case 9 (MMIO Read - Expected to pause) ---
+     {
+        name: "MMIO Read (Pauses)",
+        assembly: `
+            LDR 0x1F0          ; Read from Input Port 0x1F0
+            HLT
+        `,
+        maxSteps: 10, // Should pause quickly
+        // Test that it pauses, not the final state after input
+        expected: {
+            registers: { pc: 0x001 }, // PC increments after fetch, pause happens in execute
+            status: "Paused (Waiting for Input @ 0x1F0)" // Check execution status
+        }
+    },
+];
+
+// --- Test Runner Logic ---
+
+const testRunnerDOM = {
+    runButton: document.getElementById('run-tests-button'),
+    summary: document.getElementById('test-summary'),
+    details: document.getElementById('test-details')
+};
+
+function runAllTests() {
+    logMessage("Starting automated tests...");
+    testRunnerDOM.summary.textContent = "Running tests...";
+    testRunnerDOM.details.innerHTML = ""; // Clear previous details
+
+    let passCount = 0;
+    let failCount = 0;
+    let skipCount = 0; // For tests requiring interaction
+
+    // Run tests sequentially with a small delay to allow UI updates (optional)
+    let testIndex = 0;
+    function runNextTest() {
+        if (testIndex >= testCases.length) {
+            finalizeTests();
+            return;
+        }
+
+        const testCase = testCases[testIndex];
+        const result = runSingleTest(testCase);
+        logTestResult(testCase, result);
+
+        if (result.skipped) {
+            skipCount++;
+        } else if (result.success) {
+            passCount++;
+        } else {
+            failCount++;
+        }
+
+        testIndex++;
+        // setTimeout(runNextTest, 10); // Optional small delay
+        runNextTest(); // Run immediately
+    }
+
+     function finalizeTests() {
+        const summaryText = `Tests Complete: ${passCount} Passed, ${failCount} Failed, ${skipCount} Skipped`;
+        testRunnerDOM.summary.textContent = summaryText;
+        logMessage(summaryText);
+         // Optional: Re-enable run button if disabled during tests
+         // DOMElements.runButton.disabled = cpu.halted;
+         // DOMElements.stepButton.disabled = cpu.halted;
+    }
+
+     // Start the first test
+     runNextTest();
+}
+
+function runSingleTest(testCase) {
+    console.log(`--- Running Test: ${testCase.name} ---`);
+    resetCPU(); // Reset before each test
+
+    // 1. Apply Preconditions
+    if (testCase.preconditions) {
+        if (testCase.preconditions.memory) {
+            for (const addr in testCase.preconditions.memory) {
+                memory[parseInt(addr)] = testCase.preconditions.memory[addr];
+            }
+        }
+        if (testCase.preconditions.registers) {
+             for (const regName in testCase.preconditions.registers) {
+                const regIdx = regMap[regName.toUpperCase()];
+                if (regIdx !== undefined) {
+                    cpu.gpr[regIdx] = testCase.preconditions.registers[regName];
+                } else if (regName.toLowerCase() === 'acc') {
+                    cpu.acc = testCase.preconditions.registers[regName];
+                } // Add other special regs if needed
+             }
+        }
+        // Apply flag/p-file preconditions if needed
+    }
+    // Update UI to reflect preconditions (optional, slows tests)
+    // updateUI();
+
+    // 2. Assemble
+    const assemblyResult = assemble(testCase.assembly);
+    if (!assemblyResult.success) {
+        return { success: false, message: "Assembly failed:\n" + assemblyResult.errors.join("\n") };
+    }
+
+    // 3. Load Code
+    assemblyResult.machineCode.forEach((word, index) => {
+        if (index < MEMORY_SIZE) {
+            memory[index] = word;
+        }
+    });
+    // updateUI(); // Optional UI update
+
+    // 4. Execute until HLT or max steps or waiting
+    let steps = 0;
+    const maxSteps = testCase.maxSteps || 500; // Default max steps
+    let finalStatus = "Running";
+
+    while (steps < maxSteps) {
+        if (cpu.halted) {
+            finalStatus = "Halted";
+            break;
+        }
+        if (cpu.waitingForInput) {
+            // For automated tests, treat waiting for input as a specific state or skip/fail
+             finalStatus = `Paused (Waiting for Input @ ${formatHex(cpu.inputAddress, 3)})`;
+             // If the test *expects* to pause, this might be a "pass" condition for status check
+             if (testCase.expected && testCase.expected.status === finalStatus) {
+                 break; // Stop execution here if the expected state is the pause itself
+             } else {
+                  // If the test wasn't expected to pause, treat it as unexpected.
+                  // For simplicity now, we just break and let the state check handle it.
+                  break;
+             }
+        }
+
+        // Store PC before fetch/execute for comparison if needed
+        const pcBefore = cpu.pc;
+        if (!fetchInstruction()) {
+             finalStatus = "Halted (PC Error)";
+             break;
+        }
+        incrementPC();
+        decodeAndExecute(cpu.ir);
+        steps++;
+    }
+
+    if (steps >= maxSteps && !cpu.halted && !cpu.waitingForInput) {
+         finalStatus = "Running (Max Steps Reached)";
+        // return { success: false, message: `Test failed: Exceeded maximum steps (${maxSteps})` };
+    }
+     if (cpu.halted && finalStatus === "Running") finalStatus = "Halted"; // Update if halted on last step
+
+
+    // 5. Compare final state
+    const comparison = compareStates(cpu, memory, testCase.expected, finalStatus);
+
+    if (comparison.match) {
+        return { success: true, message: "Passed" };
+    } else {
+        return { success: false, message: `Failed:\n${comparison.diff}` };
+    }
+}
+
+function captureActualState(cpuState, memState, expected) {
+     // Captures only the parts mentioned in 'expected' for comparison
+     const actual = {
+         registers: {},
+         flags: {},
+         p_file: {},
+         memory: {}
+     };
+
+     if (expected.registers) {
+         for (const regName in expected.registers) {
+             const regLower = regName.toLowerCase();
+             if (regLower === 'pc') {
+                 actual.registers.pc = cpuState.pc;
+             } else {
+                 const regIdx = regMap[regName.toUpperCase()];
+                 if (regIdx !== undefined) {
+                     actual.registers[regName] = cpuState.gpr[regIdx];
+                 }
+             }
+         }
+     }
+      if (expected.acc !== undefined) {
+         actual.acc = cpuState.acc;
+     }
+
+     if (expected.flags) {
+         for (const flagName in expected.flags) {
+             actual.flags[flagName] = cpuState.flags[flagName];
+         }
+     }
+     if (expected.p_file) {
+         for (const pfileName in expected.p_file) {
+             actual.p_file[pfileName] = cpuState.p_file[pfileName];
+         }
+     }
+     if (expected.memory) {
+         for (const addrHex in expected.memory) {
+             const addr = parseInt(addrHex);
+             if (!isNaN(addr) && addr < MEMORY_SIZE) {
+                 actual.memory[addr] = memState[addr];
+             }
+         }
+     }
+     // Status is handled separately
+
+     return actual;
+}
+
+
+function compareStates(cpuState, memState, expected, actualStatus) {
+    if (!expected) return { match: true, diff: "" }; // No expected state to compare
+
+    let diffs = [];
+    const actual = captureActualState(cpuState, memState, expected);
+
+    // Compare Registers
+    if (expected.registers) {
+        for (const regName in expected.registers) {
+            if (actual.registers[regName] !== expected.registers[regName]) {
+                diffs.push(`Register ${regName}: Expected=${formatValue(expected.registers[regName])}, Actual=${formatValue(actual.registers[regName])}`);
+            }
+        }
+    }
+     // Compare ACC
+     if (expected.acc !== undefined) {
+         if (actual.acc !== expected.acc) {
+             diffs.push(`Register ACC: Expected=${formatValue(expected.acc)}, Actual=${formatValue(actual.acc)}`);
+         }
+     }
+
+    // Compare Flags
+    if (expected.flags) {
+        for (const flagName in expected.flags) {
+            if (actual.flags[flagName] !== expected.flags[flagName]) {
+                diffs.push(`Flag ${flagName}: Expected=${expected.flags[flagName]}, Actual=${actual.flags[flagName]}`);
+            }
+        }
+    }
+    // Compare P-File
+     if (expected.p_file) {
+        for (const pfileName in expected.p_file) {
+            if (actual.p_file[pfileName] !== expected.p_file[pfileName]) {
+                diffs.push(`P-File ${pfileName}: Expected=${expected.p_file[pfileName]}, Actual=${actual.p_file[pfileName]}`);
+            }
+        }
+    }
+
+    // Compare Memory
+    if (expected.memory) {
+        for (const addrHex in expected.memory) {
+             const addr = parseInt(addrHex);
+            if (actual.memory[addr] !== expected.memory[addrHex]) {
+                diffs.push(`Memory[${formatHex(addr, 3)}]: Expected=${formatValue(expected.memory[addrHex])}, Actual=${formatValue(actual.memory[addr])}`);
+            }
+        }
+    }
+
+    // Compare Status
+    if (expected.status && actualStatus !== expected.status) {
+         diffs.push(`Status: Expected='${expected.status}', Actual='${actualStatus}'`);
+    }
+
+
+    return {
+        match: diffs.length === 0,
+        diff: diffs.join("\n")
+    };
+}
+
+// Helper to format values consistently for comparison messages
+function formatValue(val) {
+     if (typeof val === 'number') {
+         // Heuristic: guess if it's likely an address (<=0x1FF) or data
+         if (val <= ADDRESS_MASK) return formatHex(val, 3);
+         return formatHex(val, 4);
+     }
+     return val; // Keep strings (like status) as is
+}
+
+
+function logTestResult(testCase, result) {
+    const listItem = document.createElement('li');
+    let statusText = result.success ? 'PASS' : 'FAIL';
+    if (result.skipped) statusText = 'SKIP';
+
+    listItem.textContent = `[${statusText}] ${testCase.name}`;
+    if (!result.success && !result.skipped) {
+        listItem.textContent += `\n--- Details ---\n${result.message}`;
+        listItem.classList.add('fail');
+    } else if (result.skipped){
+         listItem.textContent += ` (${result.message || 'Requires manual interaction'})`;
+         listItem.classList.add('skipped');
+    }
+     else {
+        listItem.classList.add('pass');
+    }
+    testRunnerDOM.details.appendChild(listItem);
+}
+
+// --- Modify Event Listener Setup ---
+function setupEventListeners() {
+    // ... (keep existing listeners for assemble, step, run, etc.) ...
+    DOMElements.assembleButton.addEventListener('click', () => {
+        // ... existing assemble logic ...
+    });
+    DOMElements.stepButton.addEventListener('click', stepExecution);
+    DOMElements.runButton.addEventListener('click', startSimulation);
+    DOMElements.stopButton.addEventListener('click', stopSimulation);
+    DOMElements.resetButton.addEventListener('click', resetCPU);
+    DOMElements.ioInputProvideButton.addEventListener('click', () => {
+         // ... existing io input logic ...
+          if (cpu.waitingForInput) {
+            resumeFromMMIORead(DOMElements.ioInputValue.value);
+         }
+    });
+     DOMElements.ioInputValue.addEventListener('keydown', (event) => {
+         // ... existing io input logic ...
+          if (event.key === 'Enter' && cpu.waitingForInput) {
+            DOMElements.ioInputProvideButton.click(); // Simulate button click
+        }
+    });
+    DOMElements.runSpeedInput.addEventListener('change', () => {
+         // ... existing run speed logic ...
+         runSpeedMs = parseInt(DOMElements.runSpeedInput.value) || 100;
+        if (runSpeedMs < 10) runSpeedMs = 10;
+        if (runInterval !== null) {
+            stopSimulation();
+            startSimulation();
+        }
+    });
+
+    // Add listener for the new test button
+    testRunnerDOM.runButton.addEventListener('click', runAllTests);
+}
+
+// --- Make sure Initial Setup Calls the Modified setupEventListeners ---
+document.addEventListener('DOMContentLoaded', () => {
+    initializeSimulator();
+    setupEventListeners(); // This now includes the test button listener
+    // Add example code (can be removed or kept)
+     // DOMElements.assemblyCode.value = ` ... example code ... `;
+});
