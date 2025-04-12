@@ -337,3 +337,244 @@ function evaluateCond(condCode) {
             return false; // Default to false for unknown codes
     }
 }
+
+// --- Instruction Decoding and Execution ---
+
+// Predicate Check Map (maps Pred code [11:9] to P-File check)
+const predicateCheck = [
+    (p) => true,           // 000: AL (Always)
+    (p) => p.p0 === 1,     // 001: (P0)
+    (p) => p.p0 === 0,     // 010: (!P0)
+    (p) => p.p1 === 1,     // 011: (P1)
+    (p) => p.p1 === 0,     // 100: (!P1)
+    (p) => p.p2 === 1,     // 101: (P2)
+    (p) => p.p2 === 0,     // 110: (!P2)
+    (p) => p.p3 === 1      // 111: (P3)
+];
+
+function decodeAndExecute(instructionWord) {
+    if (cpu.halted) return; // Don't execute if halted
+
+    const opcode = instructionWord >> 12;          // Bits [15:12]
+    const pred = (instructionWord >> 9) & 0b111;   // Bits [11:9]
+
+    // --- 1. Predicate Check ---
+    const predicateTrue = predicateCheck[pred](cpu.p_file);
+
+    if (!predicateTrue) {
+        // console.log(`Predicated false: Skipping instruction ${formatHex(instructionWord, 4)} at ${formatHex(cpu.pc -1, 3)}`); // PC already incremented
+        updateExecutionStatus(`Running (Skipped ${formatHex(cpu.pc -1, 3)})`);
+        return; // Skip execution if predicate is false
+    }
+
+    updateExecutionStatus(`Running (Executing ${formatHex(cpu.pc -1, 3)})`);
+
+    // --- 2. Decode based on Opcode and Execute ---
+    let rd, rn, rm, imm3, address, pd, condCode; // Declare fields needed
+
+    switch (opcode) {
+        // --- Memory Reference ---
+        case 0b0000: // LDR - Load ACC from Memory
+            address = instructionWord & 0x1FF; // Bits [8:0]
+            cpu.ar = address; // Update internal AR
+            if (address >= MMIO_START_ADDRESS) {
+                // Memory-Mapped I/O Read
+                 handleMMIORead(address); // This will pause execution if needed
+                 // Value will be placed in ACC when input is provided (see handleMMIORead resume)
+            } else {
+                // Normal Memory Read
+                cpu.dr = memory[address];
+                cpu.acc = cpu.dr;
+            }
+            break;
+
+        case 0b0001: // STR - Store ACC to Memory
+            address = instructionWord & 0x1FF; // Bits [8:0]
+            cpu.ar = address;
+            cpu.dr = cpu.acc; // Data to be stored is in ACC
+            if (address >= MMIO_START_ADDRESS) {
+                // Memory-Mapped I/O Write
+                handleMMIOWrite(address, cpu.dr);
+            } else {
+                // Normal Memory Write
+                memory[address] = cpu.dr;
+            }
+            break;
+
+        // --- Data Processing (R-Type / I-Type) ---
+        // Determine if it's R-Type or I-Type based on context or specific bits
+        // In this ISA, the same opcode is used. Let's assume a non-existent bit
+        // distinguishes them, or more realistically, define separate opcodes or
+        // check if Rn == specific value, etc.
+        // *Correction:* The ISA PDF doesn't specify how R vs I is distinguished for ADD/SUB/etc.
+        // Let's *assume* a hypothetical bit (e.g., bit 3) or just *implement both* and let the assembler decide?
+        // *Simplest Approach Given Spec:* The assembler needs to generate the correct format.
+        // The simulator can't easily distinguish ADD Rd, Rn, Rm from ADD Rd, Rn, #Imm based *only* on the opcode 0010.
+        // *WORKAROUND:* Let's assume for simulation purposes we check if Rm field *could* be a valid register (0-7).
+        // This is NOT how real hardware works but is a simulation necessity without a dedicated I-bit.
+        // A better ISA would have an I-bit or separate opcodes.
+        // *REVISED PLAN:* Assume the *assembler* MUST produce the correct instruction format bits.
+        // The simulator will *only* interpret the format literally. The PDF shows distinct diagrams.
+        // Let's assume R-Type is the primary format for these opcodes, and add specific I-type opcodes later if needed,
+        // or stick to the formats literally as presented.
+
+        // Sticking to the PDF format descriptions: ADD/SUB/AND/OR/XOR/MOV/LSHL/LSHR can be R or I type.
+        // The *diagrams* show identical bit layouts except for the last field (Rm vs Imm3).
+        // We will implement logic based on the opcode, assuming the bits are laid out as shown.
+
+        case 0b0010: // ADD (R/I)
+        case 0b0011: // SUB (R/I)
+        case 0b0100: // AND (R/I)
+        case 0b0101: // ORR (R/I)
+        case 0b0110: // XOR (R/I)
+        case 0b0111: // MOV (R/I)
+        case 0b1011: // LSHL (R/I)
+        case 0b1100: // LSHR (R/I)
+            rd = (instructionWord >> 6) & 0b111; // Bits [8:6]
+            rn = (instructionWord >> 3) & 0b111; // Bits [5:3]
+            // Assume I-Type: Extract Imm3 (Zero-Extended as requested)
+            imm3 = instructionWord & 0b111;       // Bits [2:0]
+            // Assume R-Type: Extract Rm
+            rm = instructionWord & 0b111;         // Bits [2:0]
+
+            // *** SIMULATION HACK/CHOICE: How to decide R vs I? ***
+            // Since the ISA doesn't give a bit, we *must* assume the *assembler* knows.
+            // For the *simulator*, let's arbitrarily decide based on the opcode, or add
+            // a convention (e.g., certain Rn values imply Immediate).
+            // Let's choose a simple convention for NOW: If Rn is R7 (111), treat it as I-Type using Imm3.
+            // This is NOT ideal but necessary without ISA clarification.
+            // A better ISA would dedicate a bit.
+            // *User specified example uses MOV R3, R7, #Imm - suggesting Rn is NOT the indicator*
+            // *Let's strictly follow formats:* Implement both R and I type based on *separate* opcodes (even if map shows overlap)
+            // *Going with user request to follow provided map strictly:* Opcodes ARE reused.
+            // We need a way for the *assembler* to tell the simulator. Let's add a placeholder.
+            // *RETHINK*: The simplest interpretation adhering to the diagrams is that *BOTH* formats
+            // use the *same* opcode, and the *assembler* is responsible for generating the bits where
+            // bits [2:0] are *either* Rm or Imm3. The simulator just reads those bits.
+            // We'll treat bits [2:0] as the second source operand value, regardless of whether it *originally*
+            // came from a register or immediate in assembly. This avoids simulator ambiguity.
+
+            const operand2_val = instructionWord & 0b111; // Treat bits [2:0] as the value (either Imm3 zero-extended or Rm index)
+            let operand1_val = cpu.gpr[rn];
+            let result;
+
+             // For R-type interpretation (needed for shifts where operand2 is the *amount*):
+             let source_reg_val = cpu.gpr[operand2_val]; // Get value if Rm was intended
+
+            switch (opcode) {
+                case 0b0010: // ADD
+                     // *If* we needed to distinguish R/I here, logic would differ.
+                     // Assuming bits [2:0] ARE the second operand (either Imm or Reg Index)
+                     // To make sense, ADD R, R, #Imm means bits [2:0] are Imm. ADD R,R,R means bits [2:0] are Rm index.
+                     // Let's simulate the I-Type path: Rd = Rn + Imm3 (zero-extended)
+                     result = alu_add(operand1_val, operand2_val); // operand2_val is Imm3 (0-7)
+                     cpu.gpr[rd] = result;
+                     // If simulating R-Type: result = alu_add(operand1_val, cpu.gpr[rm]); cpu.gpr[rd] = result;
+                     // *** DECISION: Per example & simplicity: treat as I-Type by default for simulation ***
+                    break;
+                case 0b0011: // SUB (Treat as I-Type for now)
+                     result = alu_sub(operand1_val, operand2_val);
+                     cpu.gpr[rd] = result;
+                    break;
+                case 0b0100: // AND (Treat as I-Type for now)
+                     result = alu_and(operand1_val, operand2_val);
+                     cpu.gpr[rd] = result;
+                     break;
+                case 0b0101: // ORR (Treat as I-Type for now)
+                    result = alu_or(operand1_val, operand2_val);
+                    cpu.gpr[rd] = result;
+                    break;
+                case 0b0110: // XOR (Treat as I-Type for now)
+                    result = alu_xor(operand1_val, operand2_val);
+                    cpu.gpr[rd] = result;
+                    break;
+                case 0b0111: // MOV (Treat as I-Type for now: Rd = Imm3) - The example MOV R3, R7, #1 implies Rn is ignored? Let's assume Rd = Imm3 for I-type Mov.
+                    // Correction: MOV Rd, Rn, #Imm usually means Rd = Rn + Imm or similar, but the spec implies Rd <- Imm or Rd <- Rm based on format.
+                    // Let's assume MOV Rd, Rn, #Imm moves the *immediate* to Rd, ignoring Rn (matching example's dummy Rn usage)
+                    result = alu_mov(operand2_val); // operand2_val is Imm3
+                    cpu.gpr[rd] = result;
+                    // If R-Type: result = alu_mov(cpu.gpr[rm]); cpu.gpr[rd] = result;
+                    break;
+                case 0b1011: // LSHL (Logical Shift Left) - Amount can be Imm3 or Rm's value
+                     // Let's assume I-Type: Rd = Rn << Imm3
+                     result = alu_lshl(operand1_val, operand2_val); // operand2_val is Imm3
+                     cpu.gpr[rd] = result;
+                     // If R-Type: result = alu_lshl(operand1_val, cpu.gpr[rm] & 0x7); cpu.gpr[rd] = result; // Use lower bits of Rm value
+                     break;
+                case 0b1100: // LSHR (Logical Shift Right) - Amount can be Imm3 or Rm's value
+                     // Let's assume I-Type: Rd = Rn >>> Imm3
+                     result = alu_lshr(operand1_val, operand2_val); // operand2_val is Imm3
+                     cpu.gpr[rd] = result;
+                     // If R-Type: result = alu_lshr(operand1_val, cpu.gpr[rm] & 0x7); cpu.gpr[rd] = result; // Use lower bits of Rm value
+                     break;
+             }
+            // IMPORTANT NOTE: This simulation currently assumes the I-Type interpretation for ambiguous opcodes.
+            // A robust solution requires the *assembler* to output distinct instruction words
+            // or for the simulator to receive metadata about the original assembly line.
+            break;
+
+
+        case 0b1000: // CMP (Compare Register or Immediate) - SETS FLAGS
+            rn = (instructionWord >> 3) & 0b111; // Bits [5:3]
+            // Similar ambiguity R-Type (Rn vs Rm) vs I-Type (Rn vs Imm3)
+            imm3 = instructionWord & 0b111;       // Bits [2:0]
+            rm = instructionWord & 0b111;         // Bits [2:0]
+
+            // Assume I-Type based on example CMP R0, #0
+            const cmp_op1 = cpu.gpr[rn];
+            const cmp_op2 = imm3; // Treat bits [2:0] as Imm3 for now
+            // If R-Type: cmp_op2 = cpu.gpr[rm];
+
+            updateFlagsForCMP(cmp_op1, cmp_op2); // Calculate Rn - Op2 and set flags
+            // Result is discarded
+            break;
+
+        // --- Predicate Setting ---
+        case 0b1001: // SETP - Set Predicate Register
+            pd = (instructionWord >> 7) & 0b11;    // Bits [8:7] (00=P0, 01=P1, 10=P2, 11=P3)
+            condCode = instructionWord & 0b111111; // Bits [5:0]
+
+            const conditionMet = evaluateCond(condCode);
+            const valueToSet = conditionMet ? 1 : 0;
+
+            switch (pd) {
+                case 0b00: cpu.p_file.p0 = valueToSet; break;
+                case 0b01: cpu.p_file.p1 = valueToSet; break;
+                case 0b10: cpu.p_file.p2 = valueToSet; break;
+                case 0b11: cpu.p_file.p3 = valueToSet; break;
+            }
+            break;
+
+        // --- Control Flow ---
+        case 0b1010: // B - Branch
+            address = instructionWord & 0x1FF; // Bits [8:0] (Absolute address)
+            cpu.pc = address; // Update PC directly
+            // Note: The default PC increment after fetch is overridden here.
+            break;
+
+        // --- System ---
+        case 0b1101: // HLT - Halt Processor
+            cpu.halted = true;
+            updateExecutionStatus("Halted");
+            logMessage("HLT instruction encountered.");
+            stopSimulation(); // Stop run loop if active
+            break;
+
+        // --- Reserved Opcodes ---
+        case 0b1110:
+        case 0b1111:
+            logMessage(`Executed Reserved Opcode: ${formatHex(opcode, 1)} at ${formatHex(cpu.pc - 1, 3)}`, true);
+            cpu.halted = true;
+            updateExecutionStatus("Halted (Reserved Opcode)");
+            break;
+
+        default:
+            logMessage(`Unknown Opcode encountered: ${formatHex(opcode, 1)} at ${formatHex(cpu.pc - 1, 3)}`, true);
+            cpu.halted = true;
+            updateExecutionStatus("Halted (Unknown Opcode)");
+            break;
+    }
+
+    // Ensure PC and AR remain within 9 bits, ACC/DR/TR/GPRs within 16 bits
+    // (Masking is done where values are assigned)
+}
