@@ -648,6 +648,14 @@ function assemble(assemblyCode) {
                      } else { predCode = predMap[canonicalPred]; }
                  }
 
+                if(match && baseFormat === 'Branch' && !hasErrorOnLine) { // Added !hasErrorOnLine check
+                    console.log(`DEBUG Branch Line ${index+1}: Mnemonic='${mnemonic}', OperandsStr='${operandsStr}' (Length: ${operandsStr.length})`);
+                    // Log the character codes to check for hidden characters
+                    let codes = [];
+                    for(let i=0; i<operandsStr.length; i++) { codes.push(operandsStr.charCodeAt(i)); }
+                    console.log(`DEBUG Branch Line ${index+1}: Operand Char Codes: ${codes}`);
+                }
+
                 let instructionWord = (opcode << 12) | (predCode << 9);
                 specificFormat = "UNKNOWN"; // Reset before try
 
@@ -832,6 +840,7 @@ function parseImmediate(immStr, bits, allowSigned, lineNum) {
 
 
 function parseAddress(addrStr, symbolTable, lineNum) {
+    console.log(`DEBUG parseAddress: Input='${addrStr}'`); // Log input
     let value;
     if (addrStr.toLowerCase().startsWith('0x')) {
         value = parseInt(addrStr, 16);
