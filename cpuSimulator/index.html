@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrediCore Simulator</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <h1>PrediCore Engine Simulator (Basic Version)</h1>
+
+    <div class="simulator-layout">
+
+        <!-- Left Panel: Code, Controls, Messages, I/O -->
+        <div class="left-panel">
+            <h2>Assembly Code</h2>
+            <textarea id="assembly-code" rows="15" placeholder="Enter PrediCore assembly code here..."></textarea>
+
+            <div class="controls">
+                <button id="assemble-button">Assemble & Load</button>
+                <button id="step-button">Step</button>
+                <button id="run-button">Run</button>
+                <button id="stop-button">Stop</button>
+                <button id="reset-button">Reset</button>
+                <label> Run Speed (ms): <input type="number" id="run-speed" value="100" min="10"></label>
+            </div>
+
+            <h2>Messages / Errors</h2>
+            <pre id="message-area"></pre>
+
+            <h2>Memory-Mapped I/O</h2>
+            <div class="io-area">
+                <div class="io-input">
+                    <h3>Input (Port 0x1F0 - Read)</h3>
+                    <label>Value (0-65535): <input type="number" id="io-input-value" value="0" min="0" max="65535"></label>
+                    <button id="io-input-provide-button" style="display: none;">Provide Input</button>
+                     <span id="io-read-prompt" style="color: orange; display: none;">Waiting for input...</span>
+                </div>
+                <div class="io-output">
+                    <h3>Output (Ports 0x1F1+)</h3>
+                    <pre id="io-output-area">--- Output Log ---</pre>
+                </div>
+            </div>
+        </div>
+
+        <!-- Middle Panel: CPU State -->
+        <div class="middle-panel">
+            <h2>CPU State</h2>
+            <div class="registers">
+                <h3>Special Registers</h3>
+                <div class="reg-grid">
+                    <span>PC:</span> <span id="reg-pc">0x000</span>
+                    <span>ACC:</span> <span id="reg-acc">0x0000</span>
+                    <span>AR:</span> <span id="reg-ar">0x000</span>
+                    <span>DR:</span> <span id="reg-dr">0x0000</span>
+                    <span>TR:</span> <span id="reg-tr">0x0000</span>
+                    <span>IR:</span> <span id="reg-ir">0x0000</span>
+                </div>
+
+                <h3>General Purpose Registers (GPRs)</h3>
+                <div class="reg-grid gpr-grid">
+                    <span>R0:</span> <span id="reg-r0">0x0000</span>
+                    <span>R1:</span> <span id="reg-r1">0x0000</span>
+                    <span>R2:</span> <span id="reg-r2">0x0000</span>
+                    <span>R3:</span> <span id="reg-r3">0x0000</span>
+                    <span>R4:</span> <span id="reg-r4">0x0000</span>
+                    <span>R5:</span> <span id="reg-r5">0x0000</span>
+                    <span>R6:</span> <span id="reg-r6">0x0000</span>
+                    <span>R7:</span> <span id="reg-r7">0x0000</span>
+                </div>
+
+                <h3>Status & Predicate Registers</h3>
+                <div class="flags-pfile">
+                    <div class="status-flags">
+                        <span>Flags:</span>
+                        <span id="flag-z">Z:0</span>
+                        <span id="flag-n">N:0</span>
+                        <span id="flag-c">C:0</span>
+                        <span id="flag-v">V:0</span>
+                    </div>
+                     <div class="p-file">
+                        <span>P-File:</span>
+                        <span id="pfile-p0">P0:0</span>
+                        <span id="pfile-p1">P1:0</span>
+                        <span id="pfile-p2">P2:0</span>
+                        <span id="pfile-p3">P3:0</span>
+                    </div>
+                </div>
+            </div>
+             <div id="execution-status">Status: Idle</div>
+        </div>
+
+        <!-- Right Panel: Memory View -->
+        <div class="right-panel">
+            <h2>Memory (0x000 - 0x1FF)</h2>
+            <div id="memory-view">
+                <!-- Memory contents will be generated here by JS -->
+            </div>
+        </div>
+
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
