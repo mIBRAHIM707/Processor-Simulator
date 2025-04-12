@@ -1049,58 +1049,136 @@ function stopSimulation() {
 
 
 // --- Event Listeners ---
+// --- Event Listeners ---
 function setupEventListeners() {
+    // *** Logic for placeholder code in textarea ***
+    const assemblyTextarea = DOMElements.assemblyCode;
+    const initialExampleCode = assemblyTextarea.value; // Store the initial code
+    let placeholderActive = true; // Flag to track if placeholder is active
+
+    // Style it initially if it contains the placeholder code
+    if(assemblyTextarea.value === initialExampleCode) {
+        assemblyTextarea.classList.add('placeholder-active');
+    } else {
+        placeholderActive = false; // Code might have been changed before JS ran (e.g., browser restoring state)
+    }
+
+    // --- Event listener for FOCUS on the textarea ---
+    assemblyTextarea.addEventListener('focus', () => {
+        // If the placeholder is currently active (meaning the content hasn't been meaningfully changed by the user yet)
+        // AND the current value *still* exactly matches the initial example code...
+        if (placeholderActive && assemblyTextarea.value === initialExampleCode) {
+            assemblyTextarea.value = ''; // Clear the text
+            assemblyTextarea.classList.remove('placeholder-active'); // Remove the placeholder styling
+            placeholderActive = false; // Mark the placeholder as inactive, so this doesn't happen again on subsequent focuses
+        }
+    });
+
+    // --- Event listener for BLUR (losing focus) on the textarea ---
+    // Optional: Decide what happens if the user clears the text area and clicks away.
+    // Common behavior is to NOT restore the placeholder.
+    assemblyTextarea.addEventListener('blur', () => {
+        // Example: Restore placeholder if empty (currently commented out)
+        /*
+        if (!placeholderActive && assemblyTextarea.value === '') {
+             assemblyTextarea.value = initialExampleCode; // Restore placeholder text
+             assemblyTextarea.classList.add('placeholder-active'); // Restore style
+             placeholderActive = true; // Allow clearing again on next focus
+        }
+        */
+
+        // Safety check: Ensure styling is correct based on content if blur happens
+        // without triggering the above commented block.
+        if (assemblyTextarea.value !== initialExampleCode && assemblyTextarea.classList.contains('placeholder-active')){
+             // If content is NOT the placeholder but style IS applied, remove style.
+             assemblyTextarea.classList.remove('placeholder-active');
+        } else if (placeholderActive && assemblyTextarea.value === initialExampleCode && !assemblyTextarea.classList.contains('placeholder-active')) {
+             // If placeholder IS active, content IS placeholder, but style is missing, add style.
+             assemblyTextarea.classList.add('placeholder-active');
+        }
+    });
+
+    // --- Event listener for INPUT (typing, pasting, deleting) in the textarea ---
+    assemblyTextarea.addEventListener('input', () => {
+        // If the placeholder was active, but the content has now changed from the initial example code...
+        if (placeholderActive && assemblyTextarea.value !== initialExampleCode) {
+            // The user has started typing meaningful input.
+            assemblyTextarea.classList.remove('placeholder-active'); // Remove placeholder styling
+            placeholderActive = false; // Mark placeholder as inactive for focus events
+        }
+        // Note: If the user deletes everything back to exactly match the initialExampleCode,
+        // the `placeholderActive` flag remains `false`. This prevents the `focus` event
+        // from clearing it again if they click back in.
+    });
+
+    // --- Event listener for the ASSEMBLE button ---
     DOMElements.assembleButton.addEventListener('click', () => {
         const code = DOMElements.assemblyCode.value;
-        const result = assemble(code); // Result now contains formatInfo
+        const result = assemble(code); // Assemble the code
 
         if (result.success) {
-            // Load into memory
+            // Load into memory if assembly was successful
             resetCPU(); // Reset CPU state before loading new program
             result.machineCode.forEach((word, index) => {
                 if (index < MEMORY_SIZE) {
-                    memory[index] = word;
+                    memory[index] = word; // Copy machine code word to memory
                 }
             });
-            // <<< STORE FORMAT INFO >>>
-            instructionFormats = result.formatInfo;
+            instructionFormats = result.formatInfo; // Store format info for the simulator
 
             logMessage(`Loaded ${result.machineCode.length} words into memory.`);
-            updateUI(); // Show loaded memory and reset registers
-            updateExecutionStatus("Ready");
+            updateUI(); // Refresh the display (memory, registers)
+            updateExecutionStatus("Ready"); // Set status to ready
         } else {
+             // Assembly failed
              logMessage("Assembly failed. See error messages.", true);
              instructionFormats = []; // Clear format info on failure
-             updateExecutionStatus("Assembly Error");
+             updateExecutionStatus("Assembly Error"); // Set error status
         }
+
+        // Regardless of success/failure, ensure the placeholder logic is deactivated
+        // since the user has now explicitly interacted via the assemble button.
+        placeholderActive = false;
+        assemblyTextarea.classList.remove('placeholder-active');
     });
 
+    // --- Event listener for the STEP button ---
     DOMElements.stepButton.addEventListener('click', stepExecution);
 
+    // --- Event listener for the RUN button ---
     DOMElements.runButton.addEventListener('click', startSimulation);
 
+    // --- Event listener for the STOP button ---
     DOMElements.stopButton.addEventListener('click', stopSimulation);
 
+    // --- Event listener for the RESET button ---
     DOMElements.resetButton.addEventListener('click', resetCPU);
 
+    // --- Event listener for the PROVIDE INPUT button (MMIO) ---
     DOMElements.ioInputProvideButton.addEventListener('click', () => {
+         // Only proceed if the CPU is actually waiting for input
          if (cpu.waitingForInput) {
-            resumeFromMMIORead(DOMElements.ioInputValue.value);
+            resumeFromMMIORead(DOMElements.ioInputValue.value); // Pass the value from the input field
          }
     });
 
-    // Allow pressing Enter in the input field to provide value
+    // --- Event listener for pressing ENTER in the MMIO input field ---
     DOMElements.ioInputValue.addEventListener('keydown', (event) => {
+        // Check if the key pressed was 'Enter' and if the CPU is waiting
         if (event.key === 'Enter' && cpu.waitingForInput) {
-            DOMElements.ioInputProvideButton.click(); // Simulate button click
+            event.preventDefault(); // Prevent default form submission/newline behavior
+            DOMElements.ioInputProvideButton.click(); // Simulate a click on the provide button
         }
     });
 
-    // Update run speed immediately
+    // --- Event listener for changing the RUN SPEED input ---
     DOMElements.runSpeedInput.addEventListener('change', () => {
-        runSpeedMs = parseInt(DOMElements.runSpeedInput.value) || 100;
-        if (runSpeedMs < 10) runSpeedMs = 10;
-        // If currently running, update the interval
+        let speed = parseInt(DOMElements.runSpeedInput.value);
+        // Validate and set a minimum speed
+        runSpeedMs = isNaN(speed) || speed < 10 ? 10 : speed;
+        DOMElements.runSpeedInput.value = runSpeedMs; // Update input field in case it was invalid
+
+        // If the simulation is currently running, restart it with the new speed
         if (runInterval !== null) {
             stopSimulation();
             startSimulation();
@@ -1112,12 +1190,4 @@ function setupEventListeners() {
 document.addEventListener('DOMContentLoaded', () => {
     initializeSimulator();
     setupEventListeners(); // Attach listeners after init
-     // Add example code
-    DOMElements.assemblyCode.value = `; Example Assembly Code
-    
-MOV R0, R7, #5 ; R0 = 5 (I-Type MOV)
-MOV R1, R7, #7     ; R1 = 7 (I-Type MOV)
-ADD R2, R0, #2     ; R2 = R0 + 2 = 7 (I-Type ADD)
-SUB R3, R1, #4     ; R3 = R1 - 4 = 3 (I-Type SUB)
-HLT`;
 });

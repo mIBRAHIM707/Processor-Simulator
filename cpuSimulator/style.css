@@ -36,6 +36,9 @@
 
     --border-radius: 5px;
     --box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); /* Stronger shadow for dark */
+
+    /* *** ADDED: Header Height Variable *** */
+    --header-height: 60px;
 }
 
 *, *::before, *::after {
@@ -47,18 +50,48 @@ body {
     background-color: var(--bg-color);
     color: var(--text-color);
     margin: 0;
-    padding: 15px;
+    /* *** MODIFIED: Add padding top to prevent overlap with fixed header *** */
+    padding: calc(var(--header-height) + 15px) 15px 15px 15px;
     display: flex;
     flex-direction: column;
     align-items: center;
     min-height: 100vh;
 }
 
+/* *** REMOVED: Old top-level h1 styling (now inside header) *** */
+/*
 h1 {
     color: var(--heading-color);
     margin-bottom: 20px;
     text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
 }
+*/
+
+/* *** ADDED: Sticky Header Styles *** */
+.main-header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: var(--header-height);
+    background-color: rgba(45, 45, 45, 0.9); /* Added transparency to panel-bg color */
+    border-bottom: 1px solid var(--border-color);
+    backdrop-filter: blur(5px); /* Added blur effect for better readability */
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 20px;
+}
+
+.main-header h1 {
+    color: var(--heading-color);
+    margin: 0;
+    font-size: 1.5em;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
+}
+
 
 h2, h3 {
     color: var(--heading-color);
@@ -81,7 +114,8 @@ h3 {
     width: 100%;
     max-width: 1800px;
     gap: 20px;
-    margin-top: 15px;
+    /* *** REMOVED: margin-top (handled by body padding) *** */
+    /* margin-top: 15px; */
 }
 
 .left-panel, .middle-panel, .right-panel {
@@ -111,8 +145,15 @@ textarea#assembly-code {
     flex-grow: 1;
     margin-bottom: 15px;
     background-color: #252526; /* Slightly different dark for text area */
-    color: var(--text-color);
+    color: var(--text-color); /* Default text color */
+    line-height: 1.4; /* Improve readability */
 }
+
+/* *** ADDED: Style for when the placeholder code is visible *** */
+textarea#assembly-code.placeholder-active {
+    color: var(--text-muted); /* Make initial text look like a placeholder */
+}
+
 
 .controls {
     margin-top: 10px;

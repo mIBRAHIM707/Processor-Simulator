@@ -3,18 +3,30 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- *** ADDED: Favicon Link (replace favicon.png with your file) *** -->
+    <link rel="icon" type="image/png" href="favicon.png">
     <title>PrediCore Simulator</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <h1>PrediCore Engine Simulator (Basic Version)</h1>
+    <!-- *** ADDED: Sticky Header *** -->
+    <header class="main-header">
+        <h1>CE 222 Project Simulator</h1>
+    </header>
 
+    <!-- *** MOVED: This div now starts below the header *** -->
     <div class="simulator-layout">
 
         <!-- Left Panel: Code, Controls, Messages, I/O -->
         <div class="left-panel">
             <h2>Assembly Code</h2>
-            <textarea id="assembly-code" rows="15" placeholder="Enter PrediCore assembly code here..."></textarea>
+            <!-- *** MODIFIED: Added initial example code and removed placeholder attribute *** -->
+            <textarea id="assembly-code" rows="15">; --- Example Program: Add two numbers ---
+MOV R0, R7, #5 ; R0 = 5 (I-Type MOV)
+MOV R1, R7, #7     ; R1 = 7 (I-Type MOV)
+ADD R2, R0, #2     ; R2 = R0 + 2 = 7 (I-Type ADD)
+SUB R3, R1, #4     ; R3 = R1 - 4 = 3 (I-Type SUB)
+HLT</textarea>
 
             <div class="controls">
                 <button id="assemble-button">Assemble & Load</button>
@@ -45,7 +57,8 @@
 
         <!-- Middle Panel: CPU State -->
         <div class="middle-panel">
-            <h2>CPU State</h2>
+            <!-- ... (rest of middle panel unchanged) ... -->
+             <h2>CPU State</h2>
             <div class="registers">
                 <h3>Special Registers</h3>
                 <div class="reg-grid">
@@ -92,7 +105,8 @@
 
         <!-- Right Panel: Memory View -->
         <div class="right-panel">
-            <h2>Memory (0x000 - 0x1FF)</h2>
+            <!-- ... (rest of right panel unchanged) ... -->
+             <h2>Memory (0x000 - 0x1FF)</h2>
             <div id="memory-view">
                 <!-- Memory contents will be generated here by JS -->
             </div>
