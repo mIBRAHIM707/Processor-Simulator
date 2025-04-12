@@ -1113,9 +1113,11 @@ document.addEventListener('DOMContentLoaded', () => {
     initializeSimulator();
     setupEventListeners(); // Attach listeners after init
      // Add example code
-     DOMElements.assemblyCode.value = `
-; PrediCore Example: If-Then-Else and I/O Demo
-; if (R1 > R2) then R3 = 1 else R3 = 0
-; Then, write R3 to MMIO Port 0x1F1
-`;
+    DOMElements.assemblyCode.value = `; Example Assembly Code
+    
+MOV R0, R7, #5 ; R0 = 5 (I-Type MOV)
+MOV R1, R7, #7     ; R1 = 7 (I-Type MOV)
+ADD R2, R0, #2     ; R2 = R0 + 2 = 7 (I-Type ADD)
+SUB R3, R1, #4     ; R3 = R1 - 4 = 3 (I-Type SUB)
+HLT`;
 });

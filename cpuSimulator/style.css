@@ -176,15 +176,16 @@ textarea#assembly-code {
     background-color: #252526;
     border: 1px solid var(--border-color);
     padding: 10px;
-    height: 120px;
+    height: 170px;
     overflow-y: scroll;
     font-family: var(--monospace-font);
     font-size: 0.85em;
     white-space: pre-wrap;
     border-radius: var(--border-radius);
-    margin-bottom: 20px;
+    margin-bottom: 10px;
+    margin-top: 0px;
     line-height: 1.4;
-    color: var(--text-muted); /* Muted text for logs */
+    color: #ffffff;
 }
 #message-area span.error { /* Add class in JS if needed */
     color: var(--error-text);
