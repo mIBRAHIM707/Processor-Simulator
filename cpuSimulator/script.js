@@ -617,22 +617,53 @@ function assemble(assemblyCode) {
         }
 
         // --- Process potential instruction on this line ---
-        const instructionRegex = /^(?:\(([!A-Z0-9]+)\)\s+)?([A-Z]{2,4})\s*(.*)$/i;
-        const match = labelRemovedLine.match(instructionRegex); // Use line with label removed
+        // Use the refined Regex that handles optional operands better
+        const instructionRegex = /^(?:\(([!A-Z0-9]+)\)\s+)?([A-Z]{1,4})\s*(.+)?$/i;
+        const match = labelRemovedLine.match(instructionRegex);
 
         let generatedWord = 0; // Default word on error
         let specificFormat = "ERROR"; // Default format on error
         let hasErrorOnLine = false;
 
         if (!match) {
-             if (labelRemovedLine) { // Error only if there was content to parse
+             if (labelRemovedLine) {
                   errors.push(`Line ${index + 1}: Invalid instruction format: "${originalLine.trim()}"`);
                   hasErrorOnLine = true;
              }
         } else {
-            let [ , predMnemonic, mnemonic, operandsStr] = match;
+            // Safely extract potentially undefined groups
+            let [ , predMnemonic, mnemonic, operandsGroup] = match;
             mnemonic = mnemonic.toUpperCase();
-            operandsStr = operandsStr.trim(); // Trim the captured operands string
+            // Use captured group 3 (operandsGroup), trim if exists, otherwise empty string
+            let operandsStr = operandsGroup ? operandsGroup.trim() : "";
+
+            // ************************************************
+            // **** BRANCH DEBUGGING BLOCK ****
+            // ************************************************
+            // Check content specifically for known failing lines
+            const lineContentForDebug = labelRemovedLine.toLowerCase(); // Case-insensitive check
+            if ((lineContentForDebug.startsWith("b ") || lineContentForDebug.match(/^\([a-z0-9!]+\)\s+b\s+/)) && // Basic check for Branch mnemonic
+                (lineContentForDebug.includes("always_branch") ||
+                 lineContentForDebug.includes("skip_target") ||
+                 lineContentForDebug.includes("hit_target")))
+            {
+                console.log(`--- DEBUG Line ${index + 1} ---`);
+                console.log(`Content Parsed: "${labelRemovedLine}"`);
+                console.log(`Regex Result (match):`, match); // Log the actual match object or null
+                if (match) {
+                    console.log(`  Match[1] (Pred): ${match[1]}`);
+                    console.log(`  Match[2] (Mnem): ${match[2]}`);
+                    console.log(`  Match[3] (OpStr): ${match[3]} <-- Is this the correct label?`);
+                    console.log(`  Using operandsStr: "${operandsStr}"`); // Log the extracted operand string
+                } else {
+                    console.log(`  Regex DID NOT MATCH!`);
+                }
+                console.log(`--- END DEBUG Line ${index + 1} ---`);
+            }
+            // ************************************************
+            // **** END BRANCH DEBUGGING BLOCK ****
+            // ************************************************
+
 
             if (!opCodeMap.hasOwnProperty(mnemonic)) {
                 errors.push(`Line ${index + 1}: Unknown mnemonic '${mnemonic}'`);
@@ -648,14 +679,6 @@ function assemble(assemblyCode) {
                      } else { predCode = predMap[canonicalPred]; }
                  }
 
-                if(match && baseFormat === 'Branch' && !hasErrorOnLine) { // Added !hasErrorOnLine check
-                    console.log(`DEBUG Branch Line ${index+1}: Mnemonic='${mnemonic}', OperandsStr='${operandsStr}' (Length: ${operandsStr.length})`);
-                    // Log the character codes to check for hidden characters
-                    let codes = [];
-                    for(let i=0; i<operandsStr.length; i++) { codes.push(operandsStr.charCodeAt(i)); }
-                    console.log(`DEBUG Branch Line ${index+1}: Operand Char Codes: ${codes}`);
-                }
-
                 let instructionWord = (opcode << 12) | (predCode << 9);
                 specificFormat = "UNKNOWN"; // Reset before try
 
@@ -664,7 +687,7 @@ function assemble(assemblyCode) {
                         let addrVal, rd, rn, rm, imm3, condStr, pdStr, condVal, pdVal; // Declare vars
 
                         switch (baseFormat) {
-                            case 'Memory':
+                             case 'Memory':
                                 specificFormat = "MEMORY";
                                 if (!operandsStr) throw new Error(`Expected 1 operand (Address or Label), found none.`);
                                 addrVal = parseAddress(operandsStr, symbolTable, index + 1);
@@ -672,30 +695,14 @@ function assemble(assemblyCode) {
                                 break;
 
                             case 'Branch':
-                                case 'Branch':
                                 specificFormat = "BRANCH";
-                                // ** Refined Check **
-                                // operandsStr contains everything after the mnemonic B
-                                // It should just be the label. Check if it's empty or looks invalid.
-                                if (!operandsStr) {
-                                    throw new Error(`Expected 1 operand (Target Address or Label), found none.`);
-                                }
-                                // Trim again just in case regex captured extra space
-                                const targetLabelOrAddr = operandsStr.trim();
-                                if (!targetLabelOrAddr) { // Check after trimming
-                                    throw new Error(`Expected 1 operand (Target Address or Label), found empty string.`);
-                                }
-                                // Optional: Add a check for invalid characters?
-                                // if (/[^a-zA-Z0-9_#x]/.test(targetLabelOrAddr)) { // Basic check for allowed chars in labels/hex/dec
-                                //    throw new Error(`Invalid characters in Branch target '${targetLabelOrAddr}'`);
-                                // }
-
-                                addrVal = parseAddress(targetLabelOrAddr, symbolTable, index + 1); // Use the cleaned target
+                                if (!operandsStr) throw new Error(`Expected 1 operand (Target Address or Label), found none.`);
+                                addrVal = parseAddress(operandsStr, symbolTable, index + 1); // Use directly extracted operandsStr
                                 instructionWord |= (addrVal & ADDRESS_MASK);
                                 break;
 
                             case 'DataProc':
-                                // Needs comma splitting
+                                // Needs comma splitting for this format
                                 let operandsDP = operandsStr ? operandsStr.split(',').map(op => op.trim()).filter(op => op.length > 0) : [];
                                 if (mnemonic === 'CMP') {
                                      if (operandsDP.length !== 2) throw new Error(`Expected 2 operands (Rn, Rm or Rn, #Imm3), found ${operandsDP.length}`);
@@ -726,6 +733,7 @@ function assemble(assemblyCode) {
                                 break;
                             case 'SETP':
                                 specificFormat = "SETP";
+                                // Needs comma splitting
                                 let operandsSETP = operandsStr ? operandsStr.split(',').map(op => op.trim()).filter(op => op.length > 0) : [];
                                 if (operandsSETP.length !== 2) throw new Error(`Expected 2 operands (Condition, Pd), found ${operandsSETP.length}`);
                                 condStr = operandsSETP[0].toUpperCase();
@@ -738,6 +746,7 @@ function assemble(assemblyCode) {
                                 break;
                             case 'HLT':
                                 specificFormat = "HLT";
+                                // Check if operandsStr had any content (even after trim)
                                 if (operandsStr) throw new Error(`HLT takes no operands, found '${operandsStr}'`);
                                 break;
                             default:
@@ -754,35 +763,32 @@ function assemble(assemblyCode) {
         } // end if instruction match
 
         // --- Add results for this instruction line ---
-        machineCode.push(generatedWord);
-        formatInfo.push(specificFormat);
-        currentAddress++; // Increment generated instruction counter
+        // Only push if an instruction was expected here (i.e., not just a label line)
+        if (!isLabelOnlyLine && labelRemovedLine){ // Ensure we process lines meant for instructions
+            machineCode.push(generatedWord);
+            // If an error occurred at any stage for this line, mark format as ERROR
+            formatInfo.push(hasErrorOnLine ? "ERROR" : specificFormat);
+            currentAddress++;
+        }
 
-        // Check bounds dynamically
+
         if (currentAddress > MEMORY_SIZE) {
              errors.push(`Assembly Error: Program has exceeded memory size ${MEMORY_SIZE}`);
-             // Optional: break loop early if too big?
-             // For now, let it report all errors but return failure
+             // Optional: break loop early?
         }
+
     }); // End forEach line
 
-    // Final check and return
-    if (errors.length > 0) {
-        // Filter out errors related to exceeding memory if that was the primary issue
+    // Final check and return logic ...
+     if (errors.length > 0) {
         const nonBoundsErrors = errors.filter(e => !e.startsWith("Assembly Error: Program has exceeded"));
-         if (nonBoundsErrors.length > 0) {
-             nonBoundsErrors.forEach(err => logMessage(err, true));
-         }
-         // Always log the bounds error if it occurred
+         if (nonBoundsErrors.length > 0) { nonBoundsErrors.forEach(err => logMessage(err, true)); }
          errors.filter(e => e.startsWith("Assembly Error: Program has exceeded")).forEach(err => logMessage(err, true));
-
         logMessage("Assembly failed.");
         return { success: false, errors: errors, machineCode: [], formatInfo: [] };
-
     } else if (currentAddress !== totalInstructions && totalInstructions <= MEMORY_SIZE) {
-         // Check only if within bounds; otherwise size mismatch is expected
          logMessage(`Warning: Pass 1 count (${totalInstructions}) differs from Pass 2 generated count (${currentAddress}). Check assembly logic.`, true);
-         return { success: true, errors: [], machineCode: machineCode, formatInfo: formatInfo }; // Still success, but warn
+         return { success: true, errors: [], machineCode: machineCode, formatInfo: formatInfo };
     }
     else {
         logMessage(`Assembly successful. ${machineCode.length} words generated.`);
