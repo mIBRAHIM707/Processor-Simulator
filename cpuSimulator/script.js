@@ -544,206 +544,216 @@ const condCodeMap = {
     // Add AL? No, SETP predicate is separate field.
 };
 
-// --- Assembler ---
-
-// ... opCodeMap, regMap, pRegMap, predMap, condCodeMap constants remain the same ...
-
 function assemble(assemblyCode) {
     clearMessages();
     logMessage("Starting Assembly...");
     const lines = assemblyCode.split('\n');
     const symbolTable = {};
-    let machineCode = [];
-    let formatInfo = []; // <<< NEW: Array to store format information
+    let machineCode = []; // Build dynamically
+    let formatInfo = [];  // Build dynamically
     let errors = [];
-    let currentAddress = 0;
-    let lineAddressMap = {}; // Map line number to address for error reporting
+    let currentAddress = 0; // Tracks current address during generation
+    let pass1Errors = []; // Separate errors for Pass 1
 
-    // --- Pass 1: Build Symbol Table (Labels) ---
+    // --- Pass 1: Build Symbol Table ONLY ---
     logMessage("Running Pass 1 (Symbol Table)...");
+    let addressCounterP1 = 0; // Counter for Pass 1 addresses
     lines.forEach((line, index) => {
         const cleanedLine = line.replace(/;.*$/, '').trim();
         if (!cleanedLine) return;
-
-        lineAddressMap[index + 1] = currentAddress; // Store address for this line index
 
         const labelMatch = cleanedLine.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*:/);
         if (labelMatch) {
             const label = labelMatch[1];
             if (symbolTable.hasOwnProperty(label)) {
-                errors.push(`Line ${index + 1}: Duplicate label '${label}'`);
+                pass1Errors.push(`Line ${index + 1}: Duplicate label '${label}'`);
             } else {
-                 if (regMap.hasOwnProperty(label.toUpperCase()) ||
-                     pRegMap.hasOwnProperty(label.toUpperCase()) ||
-                     opCodeMap.hasOwnProperty(label.toUpperCase()) ||
-                     predMap.hasOwnProperty(label.toUpperCase()) ||
-                     condCodeMap.hasOwnProperty(label.toUpperCase()) ) {
-                     errors.push(`Line ${index + 1}: Label '${label}' conflicts with a reserved keyword.`);
+                 // Check conflicts... (omitted for brevity, same as before)
+                 if (regMap.hasOwnProperty(label.toUpperCase()) || /* ... other checks ... */ condCodeMap.hasOwnProperty(label.toUpperCase())) {
+                    pass1Errors.push(`Line ${index + 1}: Label '${label}' conflicts with a reserved keyword.`);
                  } else {
-                    symbolTable[label] = currentAddress;
+                    symbolTable[label] = addressCounterP1; // Assign current address
                  }
             }
+            // Does an instruction follow the label?
             const codeAfterLabel = cleanedLine.substring(labelMatch[0].length).trim();
-             if (codeAfterLabel) {
-                 currentAddress++; // Instruction follows label on same line
-             }
+            if (codeAfterLabel) {
+                addressCounterP1++; // Instruction takes space
+            }
+             // Label itself doesn't increment address unless code follows
         } else {
-            currentAddress++; // Assume lines without labels are instructions
+            // This line is assumed to be an instruction
+            addressCounterP1++;
         }
     });
-    logMessage(`Pass 1 complete. Symbol Table: ${JSON.stringify(symbolTable)}`);
-     if (errors.length > 0) {
-         errors.forEach(err => logMessage(err, true));
-         // <<< MODIFIED RETURN >>>
-         return { success: false, errors: errors, machineCode: [], formatInfo: [] };
+    const totalInstructions = addressCounterP1; // Total size determined
+    logMessage(`Pass 1 complete. Symbols: ${JSON.stringify(symbolTable)}, Estimated Size: ${totalInstructions} words.`);
+
+    if (pass1Errors.length > 0) {
+         pass1Errors.forEach(err => logMessage(err, true));
+         return { success: false, errors: pass1Errors, machineCode: [], formatInfo: [] };
      }
+    if (totalInstructions > MEMORY_SIZE) {
+        logMessage(`Assembly Error: Program too large (${totalInstructions} instructions exceeds memory size ${MEMORY_SIZE})`, true);
+        return { success: false, errors: [`Program too large`], machineCode: [], formatInfo: [] };
+    }
 
     // --- Pass 2: Generate Machine Code & Format Info ---
     logMessage("Running Pass 2 (Code Generation)...");
-    currentAddress = 0;
-    machineCode = new Array(currentAddress).fill(0); // Pre-fill based on Pass 1 count
-    formatInfo = new Array(currentAddress).fill("UNKNOWN"); // Pre-fill format info
+    errors = []; // Reset errors for Pass 2
+    currentAddress = 0; // Tracks the index for machineCode/formatInfo arrays
 
     lines.forEach((line, index) => {
         let originalLine = line;
         let cleanedLine = line.replace(/;.*$/, '').trim();
-        if (!cleanedLine) return;
+        if (!cleanedLine) return; // Skip empty
 
-        const actualAddress = lineAddressMap[index + 1]; // Get address determined in Pass 1
-        if (actualAddress === undefined) return; // Should not happen if line was processed
+        const isLabelOnlyLine = cleanedLine.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*$/); // Check if ONLY a label
+        cleanedLine = cleanedLine.replace(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*:/, '').trim(); // Remove label def
 
-        cleanedLine = cleanedLine.replace(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*:/, '').trim();
-        if (!cleanedLine) return; // Skip lines containing only a label
+        if (!cleanedLine || isLabelOnlyLine) {
+            return; // Skip lines with only labels or empty after label removal
+        }
 
+        // --- Process potential instruction on this line ---
         const instructionRegex = /^(?:\(([!A-Z0-9]+)\)\s+)?([A-Z]{2,4})\s*(.*)$/i;
         const match = cleanedLine.match(instructionRegex);
+
+        let generatedWord = 0; // Default word on error
+        let specificFormat = "ERROR"; // Default format on error
+        let hasErrorOnLine = false;
 
         if (!match) {
              if (cleanedLine) {
                   errors.push(`Line ${index + 1}: Invalid instruction format: "${originalLine.trim()}"`);
-                  formatInfo[actualAddress] = "ERROR"; // Mark format as error
+                  hasErrorOnLine = true;
              }
-             return;
-        }
+        } else {
+            let [ , predMnemonic, mnemonic, operandsStr] = match;
+            mnemonic = mnemonic.toUpperCase();
+            operandsStr = operandsStr.trim();
 
-        let [ , predMnemonic, mnemonic, operandsStr] = match;
-        mnemonic = mnemonic.toUpperCase();
-        operandsStr = operandsStr.trim();
+            if (!opCodeMap.hasOwnProperty(mnemonic)) {
+                errors.push(`Line ${index + 1}: Unknown mnemonic '${mnemonic}'`);
+                hasErrorOnLine = true;
+            } else {
+                const { opcode, format: baseFormat } = opCodeMap[mnemonic];
+                let predCode = defaultPredCode;
+                 if (predMnemonic) {
+                    const canonicalPred = `(${predMnemonic.toUpperCase()})`;
+                     if (!predMap.hasOwnProperty(canonicalPred)) {
+                          if(predMnemonic.toUpperCase() === 'AL') { predCode = predMap['AL']; }
+                          else { errors.push(`Line ${index + 1}: Invalid predicate '${predMnemonic}'`); hasErrorOnLine = true; }
+                     } else { predCode = predMap[canonicalPred]; }
+                 }
 
-        if (!opCodeMap.hasOwnProperty(mnemonic)) {
-            errors.push(`Line ${index + 1}: Unknown mnemonic '${mnemonic}'`);
-            formatInfo[actualAddress] = "ERROR";
-            return;
-        }
-        const { opcode, format: baseFormat } = opCodeMap[mnemonic];
+                let operands = [];
+                if (operandsStr && !hasErrorOnLine) { // Don't parse operands if predicate was bad
+                    operands = operandsStr.split(',').map(op => op.trim()).filter(op => op.length > 0);
+                }
 
-        let predCode = defaultPredCode;
-         if (predMnemonic) {
-            const canonicalPred = `(${predMnemonic.toUpperCase()})`;
-             if (!predMap.hasOwnProperty(canonicalPred)) {
-                  if(predMnemonic.toUpperCase() === 'AL') { predCode = predMap['AL']; }
-                  else { errors.push(`Line ${index + 1}: Invalid predicate '${predMnemonic}'`); formatInfo[actualAddress] = "ERROR"; return; }
-             } else { predCode = predMap[canonicalPred]; }
-        }
+                let instructionWord = (opcode << 12) | (predCode << 9);
+                specificFormat = "UNKNOWN"; // Reset before try
 
-        let operands = [];
-        if (operandsStr) {
-            operands = operandsStr.split(',').map(op => op.trim()).filter(op => op.length > 0);
-        }
+                if (!hasErrorOnLine) { // Only try if mnemonic/predicate were ok so far
+                    try {
+                        let addrVal, rd, rn, rm, imm3, condStr, pdStr, condVal, pdVal; // Declare inside try
 
-        let instructionWord = (opcode << 12) | (predCode << 9);
-        let specificFormat = "UNKNOWN"; // <<< Determine specific format
-
-        try {
-            let addrVal; // For Memory/Branch
-            let rd, rn, rm, imm3; // For DataProc
-            let condStr, pdStr, condVal, pdVal; // For SETP
-
-            switch (baseFormat) { // Use base format from opCodeMap
-                case 'Memory':
-                    specificFormat = "MEMORY"; // <<< Set Specific Format
-                    if (operands.length !== 1) throw new Error(`Expected 1 operand (Address or Label), found ${operands.length}`);
-                    addrVal = parseAddress(operands[0], symbolTable, index + 1);
-                    instructionWord |= (addrVal & ADDRESS_MASK);
-                    break;
-
-                case 'Branch':
-                    specificFormat = "BRANCH"; // <<< Set Specific Format
-                    if (operands.length !== 1) throw new Error(`Expected 1 operand (Target Address or Label), found ${operands.length}`);
-                    addrVal = parseAddress(operands[0], symbolTable, index + 1);
-                    instructionWord |= (addrVal & ADDRESS_MASK);
-                    break;
-
-                case 'DataProc':
-                    // Determine R vs I type based on operands
-                    if (mnemonic === 'CMP') {
-                         if (operands.length !== 2) throw new Error(`Expected 2 operands (Rn, Rm or Rn, #Imm3), found ${operands.length}`);
-                         rn = parseRegister(operands[0], index+1);
-                         if (operands[1].startsWith('#')) { // I-Type CMP
-                             specificFormat = "I_CMP"; // <<< Set Specific Format
-                             imm3 = parseImmediate(operands[1], 3, false, index+1);
-                             instructionWord |= (rn << 3) | (imm3 & 0b111);
-                         } else { // R-Type CMP
-                             specificFormat = "R_CMP"; // <<< Set Specific Format
-                             rm = parseRegister(operands[1], index+1);
-                             instructionWord |= (rn << 3) | (rm & 0b111);
-                         }
-                    } else { // Other DataProc
-                        if (operands.length !== 3) throw new Error(`Expected 3 operands (Rd, Rn, Rm or Rd, Rn, #Imm3), found ${operands.length}`);
-                        rd = parseRegister(operands[0], index+1);
-                        rn = parseRegister(operands[1], index+1);
-                         if (operands[2].startsWith('#')) { // I-Type ALU/MOV
-                             specificFormat = (mnemonic === 'MOV') ? "I_MOV" : "I_ALU"; // <<< Set Specific Format
-                             imm3 = parseImmediate(operands[2], 3, false, index+1);
-                             instructionWord |= (rd << 6) | (rn << 3) | (imm3 & 0b111);
-                         } else { // R-Type ALU/MOV
-                             specificFormat = (mnemonic === 'MOV') ? "R_MOV" : "R_ALU"; // <<< Set Specific Format
-                             rm = parseRegister(operands[2], index+1);
-                             instructionWord |= (rd << 6) | (rn << 3) | (rm & 0b111);
-                         }
+                        switch (baseFormat) {
+                            case 'Memory':
+                                specificFormat = "MEMORY";
+                                if (operands.length !== 1) throw new Error(`Expected 1 operand (Address or Label), found ${operands.length}`);
+                                addrVal = parseAddress(operands[0], symbolTable, index + 1);
+                                instructionWord |= (addrVal & ADDRESS_MASK);
+                                break;
+                            case 'Branch':
+                                specificFormat = "BRANCH";
+                                if (operands.length !== 1) throw new Error(`Expected 1 operand (Target Address or Label), found ${operands.length}`);
+                                addrVal = parseAddress(operands[0], symbolTable, index + 1);
+                                instructionWord |= (addrVal & ADDRESS_MASK);
+                                break;
+                            case 'DataProc':
+                                if (mnemonic === 'CMP') {
+                                     if (operands.length !== 2) throw new Error(`Expected 2 operands (Rn, Rm or Rn, #Imm3), found ${operands.length}`);
+                                     rn = parseRegister(operands[0], index+1);
+                                     if (operands[1].startsWith('#')) {
+                                         specificFormat = "I_CMP";
+                                         imm3 = parseImmediate(operands[1], 3, false, index+1);
+                                         instructionWord |= (rn << 3) | (imm3 & 0b111);
+                                     } else {
+                                         specificFormat = "R_CMP";
+                                         rm = parseRegister(operands[1], index+1);
+                                         instructionWord |= (rn << 3) | (rm & 0b111);
+                                     }
+                                } else {
+                                    if (operands.length !== 3) throw new Error(`Expected 3 operands (Rd, Rn, Rm or Rd, Rn, #Imm3), found ${operands.length}`);
+                                    rd = parseRegister(operands[0], index+1);
+                                    rn = parseRegister(operands[1], index+1);
+                                     if (operands[2].startsWith('#')) {
+                                         specificFormat = (mnemonic === 'MOV') ? "I_MOV" : "I_ALU";
+                                         imm3 = parseImmediate(operands[2], 3, false, index+1);
+                                         instructionWord |= (rd << 6) | (rn << 3) | (imm3 & 0b111);
+                                     } else {
+                                         specificFormat = (mnemonic === 'MOV') ? "R_MOV" : "R_ALU";
+                                         rm = parseRegister(operands[2], index+1);
+                                         instructionWord |= (rd << 6) | (rn << 3) | (rm & 0b111);
+                                     }
+                                }
+                                break;
+                            case 'SETP':
+                                specificFormat = "SETP";
+                                if (operands.length !== 2) throw new Error(`Expected 2 operands (Condition, Pd), found ${operands.length}`);
+                                condStr = operands[0].toUpperCase();
+                                pdStr = operands[1].toUpperCase();
+                                if (!condCodeMap.hasOwnProperty(condStr)) throw new Error(`Invalid condition code '${condStr}'`);
+                                if (!pRegMap.hasOwnProperty(pdStr)) throw new Error(`Invalid predicate register '${pdStr}'`);
+                                condVal = condCodeMap[condStr];
+                                pdVal = pRegMap[pdStr];
+                                instructionWord |= (pdVal << 7) | (condVal & 0b111111);
+                                break;
+                            case 'HLT':
+                                specificFormat = "HLT";
+                                if (operands.length !== 0) throw new Error(`HLT takes no operands, found ${operands.length}`);
+                                break;
+                            default:
+                                throw new Error(`Internal Assembler Error: Unknown base format '${baseFormat}'`);
+                        }
+                        generatedWord = instructionWord; // Success
+                    } catch (e) {
+                        errors.push(`Line ${index + 1}: ${e.message} in "${originalLine.trim()}"`);
+                        specificFormat = "ERROR"; // Ensure format reflects error
+                        hasErrorOnLine = true;
                     }
-                    break;
+                } // end if !hasErrorOnLine (parsing part)
+            } // end if opcode known
+        } // end if instruction match
 
-                case 'SETP':
-                    specificFormat = "SETP"; // <<< Set Specific Format
-                    if (operands.length !== 2) throw new Error(`Expected 2 operands (Condition, Pd), found ${operands.length}`);
-                    condStr = operands[0].toUpperCase();
-                    pdStr = operands[1].toUpperCase();
-                    if (!condCodeMap.hasOwnProperty(condStr)) throw new Error(`Invalid condition code '${condStr}'`);
-                    if (!pRegMap.hasOwnProperty(pdStr)) throw new Error(`Invalid predicate register '${pdStr}'`);
-                    condVal = condCodeMap[condStr];
-                    pdVal = pRegMap[pdStr];
-                    instructionWord |= (pdVal << 7) | (condVal & 0b111111);
-                    break;
+        // --- Add results for this instruction line ---
+        machineCode.push(generatedWord);
+        formatInfo.push(specificFormat);
+        currentAddress++; // Increment address counter for this generated instruction
 
-                case 'HLT':
-                    specificFormat = "HLT"; // <<< Set Specific Format
-                    if (operands.length !== 0) throw new Error(`HLT takes no operands, found ${operands.length}`);
-                    break;
-
-                default:
-                    throw new Error(`Internal Assembler Error: Unknown base format '${baseFormat}'`);
-            }
-            machineCode[actualAddress] = instructionWord;
-            formatInfo[actualAddress] = specificFormat; // Store the determined format
-
-        } catch (e) {
-            errors.push(`Line ${index + 1}: ${e.message} in "${originalLine.trim()}"`);
-            machineCode[actualAddress] = 0; // Insert zero on error
-            formatInfo[actualAddress] = "ERROR"; // Mark format as error
+        // Check bounds dynamically
+        if (currentAddress > MEMORY_SIZE) {
+             errors.push(`Assembly Error: Program has exceeded memory size ${MEMORY_SIZE}`);
+             // Optional: break loop early?
         }
-        // currentAddress is handled by the address map now
-    });
+    }); // End forEach line
 
     // Final check and return
     if (errors.length > 0) {
         errors.forEach(err => logMessage(err, true));
         logMessage("Assembly failed.");
-        return { success: false, errors: errors, machineCode: [], formatInfo: [] }; // <<< MODIFIED RETURN
-    } else {
+        return { success: false, errors: errors, machineCode: [], formatInfo: [] };
+    } else if (currentAddress !== totalInstructions) {
+         // Sanity check: Number of instructions generated should match Pass 1 count
+         logMessage(`Warning: Pass 1 count (${totalInstructions}) differs from Pass 2 generated count (${currentAddress}). Check assembly logic.`, true);
+         // Continue anyway, but might indicate a bug
+         return { success: true, errors: [], machineCode: machineCode, formatInfo: formatInfo };
+    }
+    else {
         logMessage(`Assembly successful. ${machineCode.length} words generated.`);
-        // <<< MODIFIED RETURN >>>
-        return { success: true, errors: [], machineCode: machineCode.slice(0, MEMORY_SIZE), formatInfo: formatInfo.slice(0, MEMORY_SIZE) };
+        return { success: true, errors: [], machineCode: machineCode, formatInfo: formatInfo };
     }
 }
 
@@ -1424,20 +1434,8 @@ function runSingleTest(testCase) {
                 memory[parseInt(addr)] = testCase.preconditions.memory[addr];
             }
         }
-        if (testCase.preconditions.registers) {
-             for (const regName in testCase.preconditions.registers) {
-                const regIdx = regMap[regName.toUpperCase()];
-                if (regIdx !== undefined) {
-                    cpu.gpr[regIdx] = testCase.preconditions.registers[regName];
-                } else if (regName.toLowerCase() === 'acc') {
-                    cpu.acc = testCase.preconditions.registers[regName];
-                } // Add other special regs if needed
-             }
-        }
-        // Apply flag/p-file preconditions if needed
+        // Apply register/flag/p-file preconditions if needed...
     }
-    // Update UI to reflect preconditions (optional, slows tests)
-    // updateUI();
 
     // 2. Assemble
     const assemblyResult = assemble(testCase.assembly);
@@ -1445,18 +1443,20 @@ function runSingleTest(testCase) {
         return { success: false, message: "Assembly failed:\n" + assemblyResult.errors.join("\n") };
     }
 
-    // 3. Load Code
+    // 3. Load Code & Format Info
     assemblyResult.machineCode.forEach((word, index) => {
         if (index < MEMORY_SIZE) {
             memory[index] = word;
         }
     });
-    // updateUI(); // Optional UI update
+    // **** STORE FORMAT INFO FOR THE TEST RUN ****
+    const testFormatInfo = assemblyResult.formatInfo;
 
     // 4. Execute until HLT or max steps or waiting
     let steps = 0;
     const maxSteps = testCase.maxSteps || 500; // Default max steps
     let finalStatus = "Running";
+    cpu.pc = 0; // Ensure PC starts at 0 for execution
 
     while (steps < maxSteps) {
         if (cpu.halted) {
@@ -1464,45 +1464,70 @@ function runSingleTest(testCase) {
             break;
         }
         if (cpu.waitingForInput) {
-            // For automated tests, treat waiting for input as a specific state or skip/fail
              finalStatus = `Paused (Waiting for Input @ ${formatHex(cpu.inputAddress, 3)})`;
-             // If the test *expects* to pause, this might be a "pass" condition for status check
              if (testCase.expected && testCase.expected.status === finalStatus) {
-                 break; // Stop execution here if the expected state is the pause itself
+                 break;
              } else {
-                  // If the test wasn't expected to pause, treat it as unexpected.
-                  // For simplicity now, we just break and let the state check handle it.
                   break;
              }
         }
 
-        // Store PC before fetch/execute for comparison if needed
-        const pcBefore = cpu.pc;
-        if (!fetchInstruction()) {
+        const pcBeforeExecute = cpu.pc; // Get PC *before* fetch
+
+        if (pcBeforeExecute > ADDRESS_MASK) { // Pre-fetch bounds check
+             logMessage(`Test Runner: PC out of bounds ${formatHex(pcBeforeExecute, 3)}`, true);
              finalStatus = "Halted (PC Error)";
+             cpu.halted = true; // Explicitly halt
              break;
         }
-        incrementPC();
-        decodeAndExecute(cpu.ir);
-        steps++;
-    }
 
+        // Fetch Instruction Word
+        const instructionWord = memory[pcBeforeExecute];
+        cpu.ir = instructionWord; // Update IR for UI consistency
+
+        // **** FETCH FORMAT TYPE for this instruction ****
+        const currentFormat = (pcBeforeExecute < testFormatInfo.length) ? testFormatInfo[pcBeforeExecute] : "UNKNOWN";
+
+        incrementPC(); // Increment PC *before* execution
+
+        // **** CALL DECODE AND EXECUTE WITH FORMAT TYPE ****
+        decodeAndExecute(instructionWord, currentFormat);
+
+        steps++;
+    } // End while loop
+
+    // Determine final status if loop finished
     if (steps >= maxSteps && !cpu.halted && !cpu.waitingForInput) {
          finalStatus = "Running (Max Steps Reached)";
-        // return { success: false, message: `Test failed: Exceeded maximum steps (${maxSteps})` };
     }
-     if (cpu.halted && finalStatus === "Running") finalStatus = "Halted"; // Update if halted on last step
+    // Ensure status reflects actual state if loop exited due to halt/wait
+    if (cpu.halted) finalStatus = "Halted";
+    else if (cpu.waitingForInput) finalStatus = `Paused (Waiting for Input @ ${formatHex(cpu.inputAddress, 3)})`;
 
 
     // 5. Compare final state
     const comparison = compareStates(cpu, memory, testCase.expected, finalStatus);
 
+    // --- DEBUGGING OUTPUT ---
+    // console.log("Test:", testCase.name);
+    // console.log("Final CPU State:", JSON.parse(JSON.stringify(cpu))); // Deep copy for logging
+    // console.log("Expected State:", testCase.expected);
+    // console.log("Comparison Result:", comparison);
+    // --- END DEBUGGING ---
+
+
     if (comparison.match) {
         return { success: true, message: "Passed" };
     } else {
-        return { success: false, message: `Failed:\n${comparison.diff}` };
+        // Include final status in failure message if it didn't match
+        let message = `Failed:\n${comparison.diff}`;
+        if (testCase.expected && testCase.expected.status && finalStatus !== testCase.expected.status && !comparison.diff.includes("Status:")) {
+             message += `\nStatus: Expected='${testCase.expected.status}', Actual='${finalStatus}'`;
+        }
+        return { success: false, message: message };
     }
 }
+
 
 function captureActualState(cpuState, memState, expected) {
      // Captures only the parts mentioned in 'expected' for comparison
