@@ -1014,7 +1014,7 @@ function startSimulation() {
     }
 
     runSpeedMs = parseInt(DOMElements.runSpeedInput.value) || 100;
-    if (runSpeedMs < 10) runSpeedMs = 10; // Minimum speed
+    // if (runSpeedMs < 10) runSpeedMs = 10; // Minimum speed
 
     logMessage(`Starting continuous execution (Speed: ${runSpeedMs} ms)...`);
     updateExecutionStatus("Running (Continuous)");

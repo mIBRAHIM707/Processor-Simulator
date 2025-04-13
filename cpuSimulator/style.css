@@ -1,436 +1,558 @@
-/* --- Global Styles & Dark Theme Variables --- */
+/* --- Spotify-Inspired Theme Variables --- */
 :root {
-    --bg-color: #1e1e1e;         /* Dark background */
-    --panel-bg: #2d2d2d;         /* Slightly lighter panel */
-    --border-color: #444444;     /* Darker border */
-    --text-color: #d4d4d4;       /* Light text */
-    --text-muted: #888888;      /* Dimmer text */
-    --heading-color: #e0e0e0;   /* Lighter heading */
-    --monospace-font: Consolas, Monaco, 'Andale Mono', 'Ubuntu Mono', monospace;
-    --sans-serif-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
-
-    /* Accent colors adapted for dark theme */
-    --primary-color: #0a84ff;    /* Brighter Blue */
-    --primary-hover: #005ec2;
-    --accent-green: #30d158;    /* Brighter Green */
-    --accent-red: #ff453a;      /* Brighter Red */
-    --accent-yellow: #ffd60a;   /* Brighter Yellow */
-    --accent-yellow-text: #333; /* Text for yellow bg */
-    --accent-cyan: #64d2ff;     /* Brighter Cyan */
-    --accent-cyan-text: #003340;
-    --accent-orange: #ff9f0a;
-    --accent-orange-text: #333;
-
-    /* Highlights */
-    --highlight-bg: #3a3a3a;
-    --pc-highlight-bg: #5a5020; /* Darker Yellow/Olive */
-    --mmio-highlight-bg: #1c4a5f; /* Darker Cyan */
-
-    /* Status/Message colors */
-    --error-bg: #5e2129;
-    --error-text: #ff9a9e;
-    --success-bg: #224b30;
-    --success-text: #a1ecb6;
-    --waiting-bg: var(--pc-highlight-bg); /* Match PC highlight */
-    --waiting-text: var(--accent-yellow);
-
-    --border-radius: 5px;
-    --box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); /* Stronger shadow for dark */
-
-    /* *** ADDED: Header Height Variable *** */
+    /* Color Variables */
+    --color-background: #121212;
+    --color-surface: #181818;        /* Slightly lighter for surfaces like text areas, message area */
+    --color-panel: #1f1f1f;          /* Background for main panels */
+    --color-primary: #1DB954;        /* Spotify Green */
+    --color-primary-hover: #1ed760;
+    --color-secondary: #535353;      /* Borders, muted elements */
+    --color-secondary-hover: #737373;
+    --color-text: #FFFFFF;
+    --color-text-secondary: #B3B3B3; /* Muted text, labels */
+    --color-error: #F15E6C;
+    --color-error-hover: #f37a86;
+    --color-success: #1DB954;        /* Often same as primary */
+    --color-warning: #F7C948;
+    --color-warning-hover: #f8d26a;
+    --color-info: #0a84ff;           /* Keeping a blue for info/MMIO */
+    --color-info-hover: #3ca0ff;
+  
+    /* Spacing Variables */
+    --space-xs: 0.25rem; /* 4px */
+    --space-sm: 0.5rem;  /* 8px */
+    --space-md: 1rem;   /* 16px */
+    --space-lg: 1.5rem; /* 24px */
+    --space-xl: 2rem;   /* 32px */
+  
+    /* Animation Variables */
+    --transition-fast: all 0.15s ease;
+    --transition-default: all 0.3s ease;
+  
+    /* Border Radius */
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 16px;
+    --radius-pill: 500px;
+  
+    /* Shadows */
+    --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.1);
+    --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.2);
+    --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.3);
+  
+    /* Specific Element Colors */
+    --color-header-bg: #101010; /* Slightly darker header */
+    --color-border: #282828;    /* Border color */
+    --color-input-bg: #282828;  /* Input background */
+    --color-highlight-bg: #2a2a2a; /* Hover/subtle highlights */
+    --color-pc-highlight-border: var(--color-primary);
+    --color-pc-highlight-text: var(--color-primary);
+    --color-mmio-highlight-bg: rgba(10, 132, 255, 0.1); /* Subtle blue tint for MMIO */
+    --color-mmio-highlight-text: var(--color-info);
+  
+    /* Fonts */
+    --font-sans-serif: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    --font-monospace: Consolas, Monaco, 'Andale Mono', 'Ubuntu Mono', monospace;
+  
+    /* --- Header Height (Keep from previous version) --- */
     --header-height: 60px;
-}
-
-*, *::before, *::after {
-    box-sizing: border-box;
-}
-
-body {
-    font-family: var(--sans-serif-font);
-    background-color: var(--bg-color);
-    color: var(--text-color);
-    margin: 0;
-    /* *** MODIFIED: Add padding top to prevent overlap with fixed header *** */
-    padding: calc(var(--header-height) + 15px) 15px 15px 15px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    min-height: 100vh;
-}
-
-/* *** REMOVED: Old top-level h1 styling (now inside header) *** */
-/*
-h1 {
-    color: var(--heading-color);
-    margin-bottom: 20px;
-    text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
-}
-*/
-
-/* *** ADDED: Sticky Header Styles *** */
+  }
+  
+  
+  /* --- Base Styles --- */
+  *, *::before, *::after {
+      box-sizing: border-box;
+  }
+  
+  body {
+      font-family: var(--font-sans-serif);
+      background-color: var(--color-background);
+      color: var(--color-text);
+      margin: 0;
+      padding: calc(var(--header-height) + var(--space-md)) var(--space-md) var(--space-md) var(--space-md);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      line-height: 1.6;
+  }
+  
+  h1, h2, h3 {
+      color: var(--color-text);
+      margin-top: 0;
+      margin-bottom: var(--space-md);
+      font-weight: 700;
+      letter-spacing: -0.01em;
+  }
+  h3 {
+      font-size: 1.15em;
+      margin-bottom: var(--space-sm);
+      border-bottom: 1px solid var(--color-border);
+      padding-bottom: var(--space-xs);
+  }
+  h2 {
+      font-size: 1.3em;
+       border-bottom: 1px solid var(--color-border);
+      padding-bottom: var(--space-sm);
+  }
+  
+/* --- Sticky Header --- */
 .main-header {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: var(--header-height);
-    background-color: rgba(45, 45, 45, 0.9); /* Added transparency to panel-bg color */
-    border-bottom: 1px solid var(--border-color);
-    backdrop-filter: blur(5px); /* Added blur effect for better readability */
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-    z-index: 1000;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0 20px;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: var(--header-height);
+        background-color: rgba(16, 16, 16, 0.7); /* Added opacity */
+        backdrop-filter: blur(8px); /* Added blur effect */
+        border-bottom: 1px solid var(--color-border);
+        box-shadow: var(--shadow-md);
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 var(--space-md);
 }
 
 .main-header h1 {
-    color: var(--heading-color);
-    margin: 0;
-    font-size: 1.5em;
-    text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
+        margin: 0;
+        font-size: 1.6em;
+        font-weight: 700;
+        letter-spacing: -0.02em;
 }
-
-
-h2, h3 {
-    color: var(--heading-color);
-    margin-top: 0;
-    margin-bottom: 15px;
-    border-bottom: 1px solid var(--border-color);
-    padding-bottom: 5px;
-}
-h3 {
-    font-size: 1.1em;
-    margin-bottom: 10px;
-}
-
-
-/* --- Layout --- */
-.simulator-layout {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    width: 100%;
-    max-width: 1800px;
-    gap: 20px;
-    /* *** REMOVED: margin-top (handled by body padding) *** */
-    /* margin-top: 15px; */
-}
-
-.left-panel, .middle-panel, .right-panel {
-    background-color: var(--panel-bg);
-    border: 1px solid var(--border-color);
-    padding: 20px;
-    border-radius: var(--border-radius);
-    box-shadow: var(--box-shadow);
-    display: flex;
-    flex-direction: column;
-}
-
-.left-panel { flex: 1 1 450px; min-width: 400px; }
-.middle-panel { flex: 0 0 350px; }
-.right-panel { flex: 0 0 300px; }
-
-/* --- Code & Controls Panel --- */
-textarea#assembly-code {
-    width: 100%;
-    font-family: var(--monospace-font);
-    font-size: 0.95em;
-    border: 1px solid var(--border-color);
-    padding: 10px;
-    border-radius: var(--border-radius);
-    resize: vertical;
-    min-height: 200px;
-    flex-grow: 1;
-    margin-bottom: 15px;
-    background-color: #252526; /* Slightly different dark for text area */
-    color: var(--text-color); /* Default text color */
-    line-height: 1.4; /* Improve readability */
-}
-
-/* *** ADDED: Style for when the placeholder code is visible *** */
-textarea#assembly-code.placeholder-active {
-    color: var(--text-muted); /* Make initial text look like a placeholder */
-}
-
-
-.controls {
-    margin-top: 10px;
-    margin-bottom: 20px;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-}
-
-.controls button {
-    padding: 8px 15px;
-    cursor: pointer;
-    border: none;
-    background-color: var(--primary-color);
-    color: #ffffff; /* White text on bright blue */
-    border-radius: var(--border-radius);
-    font-size: 0.9em;
-    font-weight: 500;
-    transition: background-color 0.2s ease, transform 0.1s ease;
-}
-.controls button:hover:not(:disabled) {
-    background-color: var(--primary-hover);
-    transform: translateY(-1px); /* Subtle lift effect */
-}
-.controls button:active:not(:disabled) {
-    transform: translateY(0px);
-}
-.controls button:disabled {
-    background-color: #5a5a5a;
-    color: #999999;
-    cursor: not-allowed;
-}
-
-/* Specific button colors */
-#reset-button { background-color: var(--accent-red); }
-#reset-button:hover:not(:disabled) { background-color: #d9362e; }
-#stop-button { background-color: var(--accent-yellow); color: var(--accent-yellow-text); }
-#stop-button:hover:not(:disabled) { background-color: #d4af0b; }
-#assemble-button { background-color: var(--accent-green); }
-#assemble-button:hover:not(:disabled) { background-color: #28a745; }
-
-
-.controls label {
-     display: flex;
-     align-items: center;
-     gap: 5px;
-     font-size: 0.9em;
-     color: var(--text-muted);
-}
-.controls input[type="number"] {
-    width: 60px;
-    padding: 5px;
-    border: 1px solid var(--border-color);
-    border-radius: var(--border-radius);
-    background-color: #3c3c3c;
-    color: var(--text-color);
-}
-
-/* --- Message Area --- */
-#message-area {
-    background-color: #252526;
-    border: 1px solid var(--border-color);
-    padding: 10px;
-    height: 170px;
-    overflow-y: scroll;
-    font-family: var(--monospace-font);
-    font-size: 0.85em;
-    white-space: pre-wrap;
-    border-radius: var(--border-radius);
-    margin-bottom: 10px;
-    margin-top: 0px;
-    line-height: 1.4;
-    color: #ffffff;
-}
-#message-area span.error { /* Add class in JS if needed */
-    color: var(--error-text);
-}
-#message-area span.info { /* Add class in JS if needed */
-    color: var(--text-muted);
-}
-
-
-/* --- I/O Area --- */
-.io-area {
-    margin-top: 15px;
-    border-top: 1px dashed var(--border-color);
-    padding-top: 15px;
-}
-.io-input, .io-output {
-    margin-bottom: 15px;
-}
-.io-input label {
-    color: var(--text-muted);
-}
-.io-input input[type="number"] {
-    width: 100px;
-    margin-right: 10px;
-    padding: 5px;
-}
-.io-input button {
-    padding: 5px 10px;
-    font-size: 0.9em;
-    background-color: var(--accent-cyan);
-    color: var(--accent-cyan-text);
-}
-.io-input button:hover:not(:disabled) {
-    background-color: #4fcce0;
-}
-#io-read-prompt {
-    font-weight: bold;
-    color: var(--waiting-text);
-    background-color: var(--waiting-bg);
-    padding: 3px 6px;
-    border-radius: 3px;
-    display: inline-block;
-    margin-left: 10px;
-}
-
-#io-output-area {
-    background-color: #252526;
-    border: 1px solid var(--border-color);
-    padding: 10px;
-    min-height: 80px;
-    height: auto;
-    max-height: 150px;
-    overflow-y: auto;
-    font-family: var(--monospace-font);
-    font-size: 0.85em;
-    white-space: pre-wrap;
-    border-radius: var(--border-radius);
-    line-height: 1.4;
-    color: #b0b0b0; /* Slightly brighter log text */
-}
-
-/* --- CPU State Panel --- */
-.registers {
-    font-family: var(--monospace-font);
-    font-size: 0.95em;
-    line-height: 1.5;
-}
-
-.registers h3 {
-    margin-bottom: 10px;
-    font-size: 1.05em;
-}
-
-.reg-grid {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 3px 12px;
-    margin-bottom: 15px;
-    align-items: center;
-}
-.reg-grid span:first-child { /* Style labels */
-    color: var(--text-muted);
-    text-align: right;
-}
-.reg-grid span:last-child { /* Style values */
-    color: var(--text-color);
-    font-weight: 500;
-}
-
-.gpr-grid {
-     grid-template-columns: auto 1fr auto 1fr;
-     gap: 3px 12px 3px 12px;
-}
-
-.flags-pfile {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    gap: 15px;
-    margin-top: 10px;
-    background-color: var(--highlight-bg);
-    padding: 8px 12px;
-    border-radius: var(--border-radius);
-    border: 1px solid var(--border-color);
-}
-.status-flags, .p-file {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-}
-.status-flags > span:first-child,
-.p-file > span:first-child {
-    font-weight: bold;
-    color: var(--heading-color);
-}
-
-#flag-z, #flag-n, #flag-c, #flag-v,
-#pfile-p0, #pfile-p1, #pfile-p2, #pfile-p3 {
-    font-weight: bold;
-    padding: 2px 5px;
-    border-radius: 3px;
-    background-color: var(--panel-bg); /* Match panel background */
-    border: 1px solid var(--border-color);
-}
-#flag-z, #pfile-p0 { color: var(--primary-color); border-color: var(--primary-color);}
-#flag-n, #pfile-p1 { color: var(--accent-red); border-color: var(--accent-red);}
-#flag-c, #pfile-p2 { color: var(--accent-green); border-color: var(--accent-green);}
-#flag-v, #pfile-p3 { color: var(--accent-orange); border-color: var(--accent-orange);}
-
-
-/* --- Execution Status --- */
-#execution-status {
-    margin-top: auto;
-    padding: 10px;
-    background-color: var(--highlight-bg);
-    text-align: center;
-    font-weight: bold;
-    border-radius: var(--border-radius);
-    border: 1px solid var(--border-color);
-    margin-top: 20px;
-    font-size: 0.95em;
-    transition: background-color 0.3s ease, color 0.3s ease;
-}
-
-#execution-status.status-idle { background-color: #4a4a4a; color: #b0b0b0; }
-#execution-status.status-running { background-color: #004085; color: #cce5ff; }
-#execution-status.status-paused { background-color: var(--waiting-bg); color: var(--waiting-text); }
-#execution-status.status-halted { background-color: #6c757d; color: #ffffff; }
-#execution-status.status-error { background-color: var(--error-bg); color: var(--error-text); }
-#execution-status.status-ready { background-color: #4a4a4a; color: #b0b0b0; }
-
-
-/* --- Memory View Panel --- */
-#memory-view {
-    /* **** LIMIT HEIGHT and make scrollable **** */
-    height: 500px; /* Adjust as needed, smaller than before */
-    max-height: 60vh; /* Max % of viewport height */
-    overflow-y: scroll;
-    border: 1px solid var(--border-color);
-    padding: 5px;
-    font-family: var(--monospace-font);
-    font-size: 0.9em;
-    background-color: #252526; /* Dark background for memory */
-    border-radius: var(--border-radius);
-    flex-grow: 1;
-}
-.memory-location {
-    display: flex;
-    justify-content: space-between;
-    padding: 2px 5px;
-    border-bottom: 1px solid #333; /* Darker border */
-    line-height: 1.4;
-    transition: background-color 0.15s ease; /* Smooth hover */
-}
-
-.memory-location:nth-child(even) {
-    background-color: #2a2a2a; /* Slightly different dark for striping */
-}
-.memory-location:hover {
-    background-color: var(--highlight-bg);
-}
-.memory-location.current-pc {
-    background-color: var(--pc-highlight-bg);
-    font-weight: bold;
-    border-left: 3px solid var(--accent-yellow);
-}
-.memory-location.current-pc .memory-address,
-.memory-location.current-pc .memory-value {
-    color: var(--accent-yellow); /* Highlight text too */
-}
-
-.memory-address {
-    color: var(--text-muted);
-    padding-right: 10px;
-}
-.memory-value {
-    color: var(--text-color);
-}
-.memory-location.mmio-range {
-    background-color: var(--mmio-highlight-bg);
-}
-.memory-location.mmio-range .memory-address {
-    color: var(--accent-cyan);
-}
-.memory-location.mmio-range .memory-value {
-    color: #cceeff; /* Lighter cyan for value */
-}
+  
+  /* --- Layout --- */
+  .simulator-layout {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      width: 100%;
+      max-width: 1800px;
+      gap: var(--space-lg); /* Increased gap */
+  }
+  
+  .left-panel, .middle-panel, .right-panel {
+      background-color: var(--color-panel);
+      border: 1px solid var(--color-border);
+      padding: var(--space-lg); /* Use spacing variable */
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-md);
+      display: flex;
+      flex-direction: column;
+  }
+  
+  .left-panel { flex: 1 1 450px; min-width: 400px; }
+  .middle-panel { flex: 0 0 380px; } /* Slightly wider */
+  .right-panel { flex: 0 0 320px; } /* Slightly wider */
+  
+  /* --- Code & Controls Panel --- */
+  textarea#assembly-code {
+      width: 100%;
+      font-family: var(--font-monospace);
+      font-size: 0.9em; /* Slightly smaller mono */
+      border: 1px solid var(--color-secondary);
+      padding: var(--space-sm);
+      border-radius: var(--radius-sm); /* Smaller radius for input */
+      resize: vertical;
+      min-height: 250px; /* Taller */
+      flex-grow: 1;
+      margin-bottom: var(--space-md);
+      background-color: var(--color-surface);
+      color: var(--color-text);
+      line-height: 1.5;
+      transition: var(--transition-fast);
+  }
+  textarea#assembly-code:focus {
+      border-color: var(--color-primary);
+      box-shadow: 0 0 0 2px rgba(29, 185, 84, 0.2); /* Subtle green glow */
+      outline: none;
+  }
+  textarea#assembly-code.placeholder-active {
+      color: var(--color-text-secondary);
+  }
+  
+  /* --- Controls --- */
+  .controls {
+      margin-top: var(--space-sm);
+      margin-bottom: var(--space-lg);
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-sm);
+  }
+  
+  .controls button {
+      font-family: var(--font-sans-serif);
+      font-weight: 600;
+      padding: var(--space-sm) var(--space-md);
+      border-radius: var(--radius-pill);
+      transition: var(--transition-default);
+      border: none;
+      cursor: pointer;
+      font-size: 0.9em;
+      text-transform: capitalize;
+      letter-spacing: 0.3px;
+      display: inline-flex; /* Align icon and text if needed */
+      align-items: center;
+      justify-content: center;
+  }
+  .controls button:hover:not(:disabled) {
+      transform: scale(1.03); /* Slightly bigger pop */
+  }
+  .controls button:active:not(:disabled) {
+      transform: scale(0.98);
+  }
+  .controls button:disabled {
+      background-color: var(--color-secondary) !important; /* Use !important carefully */
+      color: var(--color-text-secondary) !important;
+      cursor: not-allowed;
+      opacity: 0.6;
+      transform: none;
+  }
+  
+  /* Primary Button Style (Assemble, Step, Run) */
+  #assemble-button, #step-button, #run-button {
+      background-color: var(--color-primary);
+      color: #000000; /* Black text on green */
+  }
+  #assemble-button:hover:not(:disabled),
+  #step-button:hover:not(:disabled),
+  #run-button:hover:not(:disabled) {
+      background-color: var(--color-primary-hover);
+  }
+  
+  /* Warning Button Style (Stop) */
+  #stop-button {
+      background-color: var(--color-warning);
+      color: #000000; /* Black text */
+  }
+  #stop-button:hover:not(:disabled) {
+      background-color: var(--color-warning-hover);
+  }
+  
+  /* Error Button Style (Reset) */
+  #reset-button {
+      background-color: var(--color-error);
+      color: var(--color-text); /* White text on red */
+  }
+  #reset-button:hover:not(:disabled) {
+      background-color: var(--color-error-hover);
+  }
+  
+  
+  .controls label {
+       display: flex;
+       align-items: center;
+       gap: var(--space-xs);
+       font-size: 0.85em;
+       color: var(--color-text-secondary);
+  }
+  .controls input[type="number"] {
+      width: 65px;
+      padding: var(--space-xs) var(--space-sm);
+      border: 1px solid var(--color-secondary);
+      border-radius: var(--radius-sm);
+      background-color: var(--color-input-bg);
+      color: var(--color-text);
+      font-size: 0.9em;
+      transition: var(--transition-fast);
+  }
+  .controls input[type="number"]:focus {
+      border-color: var(--color-primary);
+      box-shadow: 0 0 0 2px rgba(29, 185, 84, 0.2);
+      outline: none;
+  }
+  
+  /* --- Message Area --- */
+  #message-area {
+      background-color: var(--color-surface);
+      border: 1px solid var(--color-border);
+      padding: var(--space-sm);
+      height: 150px; /* Slightly shorter */
+      overflow-y: scroll;
+      font-family: var(--font-monospace);
+      font-size: 0.8em; /* Smaller msg text */
+      white-space: pre-wrap;
+      border-radius: var(--radius-sm);
+      margin-bottom: var(--space-lg);
+      margin-top: 0px;
+      line-height: 1.5;
+      color: var(--color-text-secondary); /* Muted default text */
+  }
+  /* Custom Scrollbar for Message Area and Memory View */
+  #message-area::-webkit-scrollbar,
+  #io-output-area::-webkit-scrollbar,
+  #memory-view::-webkit-scrollbar {
+    width: 8px;
+  }
+  #message-area::-webkit-scrollbar-track,
+  #io-output-area::-webkit-scrollbar-track,
+  #memory-view::-webkit-scrollbar-track {
+    background: var(--color-surface);
+    border-radius: 4px;
+  }
+  #message-area::-webkit-scrollbar-thumb,
+  #io-output-area::-webkit-scrollbar-thumb,
+  #memory-view::-webkit-scrollbar-thumb {
+    background: var(--color-secondary);
+    border-radius: 4px;
+  }
+  #message-area::-webkit-scrollbar-thumb:hover,
+  #io-output-area::-webkit-scrollbar-thumb:hover,
+  #memory-view::-webkit-scrollbar-thumb:hover {
+    background: var(--color-secondary-hover);
+  }
+  
+  
+  /* --- I/O Area --- */
+  .io-area {
+      margin-top: var(--space-md);
+      border-top: 1px solid var(--color-border);
+      padding-top: var(--space-md);
+  }
+  .io-input, .io-output {
+      margin-bottom: var(--space-md);
+  }
+  .io-input label {
+      color: var(--color-text-secondary);
+      font-size: 0.9em;
+  }
+  .io-input input[type="number"] {
+      width: 100px;
+      margin-right: var(--space-sm);
+      padding: var(--space-xs) var(--space-sm);
+      border: 1px solid var(--color-secondary);
+      border-radius: var(--radius-sm);
+      background-color: var(--color-input-bg);
+      color: var(--color-text);
+      font-size: 0.9em;
+      transition: var(--transition-fast);
+  }
+  .io-input input[type="number"]:focus {
+       border-color: var(--color-primary);
+       box-shadow: 0 0 0 2px rgba(29, 185, 84, 0.2);
+       outline: none;
+  }
+  
+  .io-input button { /* Style Provide Input button */
+      padding: var(--space-xs) var(--space-sm);
+      font-size: 0.85em;
+      border-radius: var(--radius-pill);
+      background-color: transparent;
+      border: 1px solid var(--color-info);
+      color: var(--color-info);
+      transition: var(--transition-default);
+  }
+  .io-input button:hover:not(:disabled) {
+      background-color: var(--color-info);
+      color: var(--color-text);
+      transform: scale(1.03);
+  }
+  .io-input button:disabled {
+      border-color: var(--color-secondary);
+      color: var(--color-text-secondary);
+      opacity: 0.6;
+      transform: none;
+      background-color: transparent;
+  }
+  
+  #io-read-prompt {
+      font-weight: bold;
+      color: var(--color-warning);
+      background-color: rgba(247, 201, 72, 0.1); /* Warning tint */
+      padding: var(--space-xs) var(--space-sm);
+      border-radius: var(--radius-sm);
+      display: inline-block;
+      margin-left: var(--space-sm);
+      font-size: 0.85em;
+  }
+  
+  #io-output-area {
+      background-color: var(--color-surface);
+      border: 1px solid var(--color-border);
+      padding: var(--space-sm);
+      min-height: 100px;
+      height: auto;
+      max-height: 180px;
+      overflow-y: auto;
+      font-family: var(--font-monospace);
+      font-size: 0.8em;
+      white-space: pre-wrap;
+      border-radius: var(--radius-sm);
+      line-height: 1.5;
+      color: var(--color-text-secondary);
+  }
+  
+  /* --- CPU State Panel --- */
+  .registers {
+      font-family: var(--font-monospace);
+      font-size: 0.95em;
+      line-height: 1.6;
+  }
+  
+  .registers h3 {
+      font-size: 1.1em;
+  }
+  
+  .reg-grid {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: var(--space-xs) var(--space-md); /* Adjust gap */
+      margin-bottom: var(--space-md);
+      align-items: center;
+  }
+  .reg-grid span:first-child { /* Labels */
+      color: var(--color-text-secondary);
+      text-align: right;
+      font-size: 0.9em;
+  }
+  .reg-grid span:last-child { /* Values */
+      color: var(--color-text);
+      font-weight: 500;
+  }
+  
+  .gpr-grid {
+       grid-template-columns: auto 1fr auto 1fr; /* Keep 4 columns */
+  }
+  
+  .flags-pfile {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: var(--space-md);
+      margin-top: var(--space-sm);
+      background-color: var(--color-surface); /* Use surface color */
+      padding: var(--space-sm) var(--space-md);
+      border-radius: var(--radius-md);
+      border: 1px solid var(--color-border);
+  }
+  .status-flags, .p-file {
+      display: flex;
+      gap: var(--space-sm);
+      align-items: center;
+  }
+  .status-flags > span:first-child,
+  .p-file > span:first-child {
+      font-weight: bold;
+      color: var(--color-text-secondary);
+      font-size: 0.9em;
+  }
+  
+  #flag-z, #flag-n, #flag-c, #flag-v,
+  #pfile-p0, #pfile-p1, #pfile-p2, #pfile-p3 {
+      font-weight: bold;
+      padding: 2px 6px;
+      border-radius: var(--radius-sm);
+      background-color: var(--color-panel); /* Match panel background */
+      border: 1px solid var(--color-secondary);
+      font-size: 0.9em;
+      min-width: 35px; /* Ensure consistent width */
+      text-align: center;
+  }
+  /* Apply specific flag colors */
+  #flag-z, #pfile-p0 { color: var(--color-primary); border-color: var(--color-primary);}
+  #flag-n, #pfile-p1 { color: var(--color-error); border-color: var(--color-error);}
+  #flag-c, #pfile-p2 { color: var(--color-info); border-color: var(--color-info);} /* Using Info Blue for C */
+  #flag-v, #pfile-p3 { color: var(--color-warning); border-color: var(--color-warning);}
+  
+  
+  /* --- Execution Status --- */
+  #execution-status {
+      margin-top: auto; /* Pushes to bottom */
+      padding: var(--space-sm) var(--space-md);
+      background-color: var(--color-surface);
+      text-align: center;
+      font-weight: 600;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--color-border);
+      margin-top: var(--space-lg);
+      font-size: 0.95em;
+      transition: var(--transition-default);
+      color: var(--color-text-secondary); /* Default state color */
+  }
+  
+  /* Status-specific styles */
+  #execution-status.status-idle,
+  #execution-status.status-ready {
+      background-color: var(--color-surface);
+      color: var(--color-text-secondary);
+  }
+  #execution-status.status-running {
+      background-color: var(--color-primary);
+      color: #000000; /* Black text on green */
+      border-color: var(--color-primary);
+  }
+  #execution-status.status-paused {
+      background-color: var(--color-warning);
+      color: #000000; /* Black text on yellow */
+      border-color: var(--color-warning);
+  }
+  #execution-status.status-halted {
+      background-color: var(--color-secondary);
+      color: var(--color-text);
+      border-color: var(--color-secondary);
+  }
+  #execution-status.status-error {
+      background-color: var(--color-error);
+      color: var(--color-text); /* White text on red */
+      border-color: var(--color-error);
+  }
+  
+  
+  /* --- Memory View Panel --- */
+  #memory-view {
+      height: 550px; /* Taller memory view */
+      max-height: 65vh;
+      overflow-y: scroll;
+      border: 1px solid var(--color-border);
+      padding: var(--space-xs);
+      font-family: var(--font-monospace);
+      font-size: 0.85em;
+      background-color: var(--color-surface);
+      border-radius: var(--radius-sm);
+      flex-grow: 1;
+  }
+  .memory-location {
+      display: flex;
+      justify-content: space-between;
+      padding: 3px var(--space-sm); /* Slightly more padding */
+      border-bottom: 1px solid var(--color-panel); /* Subtle separator */
+      line-height: 1.5;
+      transition: var(--transition-fast);
+      border-radius: var(--radius-xs); /* Slight radius on items */
+  }
+  
+  /* Removed striping for cleaner look */
+  /* .memory-location:nth-child(even) { background-color: #1a1a1a; } */
+  
+  .memory-location:hover {
+      background-color: var(--color-highlight-bg);
+  }
+  .memory-location.current-pc {
+      background-color: rgba(29, 185, 84, 0.1); /* Subtle green background */
+      border-left: 3px solid var(--color-pc-highlight-border);
+      font-weight: bold;
+      padding-left: calc(var(--space-sm) - 3px); /* Adjust padding for border */
+  }
+  .memory-location.current-pc .memory-address,
+  .memory-location.current-pc .memory-value {
+      color: var(--color-pc-highlight-text);
+  }
+  
+  .memory-address {
+      color: var(--color-text-secondary);
+      padding-right: var(--space-md);
+  }
+  .memory-value {
+      color: var(--color-text);
+  }
+  .memory-location.mmio-range {
+      background-color: var(--color-mmio-highlight-bg); /* Use variable */
+  }
+  .memory-location.mmio-range .memory-address {
+      color: var(--color-mmio-highlight-text);
+  }
+  .memory-location.mmio-range .memory-value {
+      color: var(--color-text); /* Keep value text standard */
+  }
