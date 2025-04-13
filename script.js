@@ -970,19 +970,12 @@ function stepExecution() {
     }
 
     if (!fetchInstruction()) { // Fetches into cpu.ir
-        // fetchInstruction already handles halting if needed
         updateUI();
         return;
     }
-
-    // Fetch the format type for the current instruction
-    // <<< MODIFIED: Fetch format type >>>
     const currentFormat = (pcToFetch < instructionFormats.length) ? instructionFormats[pcToFetch] : "UNKNOWN";
 
     incrementPC(); // Increment PC *before* execute
-
-    // Pass both instruction and format type
-    // <<< MODIFIED: Pass format type >>>
     decodeAndExecute(cpu.ir, currentFormat);
 
     // Update UI AFTER execution step is complete
@@ -1010,29 +1003,44 @@ function startSimulation() {
     }
     if (runInterval !== null) {
         logMessage("Simulation is already running.", true);
-        return; // Already running
+        return; // Prevent multiple intervals
     }
 
-    runSpeedMs = parseInt(DOMElements.runSpeedInput.value) || 100;
-    // if (runSpeedMs < 10) runSpeedMs = 10; // Minimum speed
+    let speedInput = parseFloat(DOMElements.runSpeedInput.value);
+    let validatedSpeed;
 
-    logMessage(`Starting continuous execution (Speed: ${runSpeedMs} ms)...`);
+    if (isNaN(speedInput) || speedInput < 0) { // Check for NaN or negative
+        logMessage(`Invalid speed input "${DOMElements.runSpeedInput.value}". Must be non-negative. Using default 100ms.`, true);
+        validatedSpeed = 100; // Fallback for invalid input
+        DOMElements.runSpeedInput.value = validatedSpeed; // Correct the displayed value
+    } else {
+        validatedSpeed = speedInput; // Use the valid user input (0 or positive)
+        // No need to update input field if it was already valid, it reflects user's choice
+    }
+
+    // Update the global runSpeedMs before starting the interval
+    runSpeedMs = validatedSpeed;
+
+    logMessage(`Starting continuous execution (Requested Delay: ${speedInput}ms, Actual Interval: ${runSpeedMs} ms)...`);
+    // Note: Actual delay might be higher due to browser clamping (min ~4-10ms).
+    if (runSpeedMs === 0) {
+         logMessage("INFO: Delay of 0ms means 'run as fast as possible' (limited by browser).");
+    }
     updateExecutionStatus("Running (Continuous)");
-    DOMElements.runButton.disabled = true; // Disable run while running
-    DOMElements.stopButton.disabled = false; // Enable stop
+    updateUI(); // Update button states (disable Run, enable Stop)
 
     runInterval = setInterval(() => {
+        // Check state *before* stepping in the interval callback
         if (cpu.halted || cpu.waitingForInput) {
-            stopSimulation();
+            stopSimulation(); // Stop interval if CPU halted or needs input
         } else {
             stepExecution();
-             // Check halt/wait status *after* step execution
-            if (cpu.halted || cpu.waitingForInput) {
-                 stopSimulation();
-                 updateUI(); // Final UI update for halted/waiting state
-            }
+            // Re-check state *after* stepping, in case the executed step caused halt/wait
+             if (cpu.halted || cpu.waitingForInput) {
+                 stopSimulation(); // Stop immediately if halt/wait occurred
+             }
         }
-    }, runSpeedMs);
+    }, runSpeedMs); // Use the validated speed
 }
 
 function stopSimulation() {
@@ -1047,8 +1055,6 @@ function stopSimulation() {
     }
 }
 
-
-// --- Event Listeners ---
 // --- Event Listeners ---
 function setupEventListeners() {
     // *** Logic for placeholder code in textarea ***
@@ -1065,30 +1071,13 @@ function setupEventListeners() {
 
     // --- Event listener for FOCUS on the textarea ---
     assemblyTextarea.addEventListener('focus', () => {
-        // If the placeholder is currently active (meaning the content hasn't been meaningfully changed by the user yet)
-        // AND the current value *still* exactly matches the initial example code...
         if (placeholderActive && assemblyTextarea.value === initialExampleCode) {
             assemblyTextarea.value = ''; // Clear the text
             assemblyTextarea.classList.remove('placeholder-active'); // Remove the placeholder styling
             placeholderActive = false; // Mark the placeholder as inactive, so this doesn't happen again on subsequent focuses
         }
     });
-
-    // --- Event listener for BLUR (losing focus) on the textarea ---
-    // Optional: Decide what happens if the user clears the text area and clicks away.
-    // Common behavior is to NOT restore the placeholder.
     assemblyTextarea.addEventListener('blur', () => {
-        // Example: Restore placeholder if empty (currently commented out)
-        /*
-        if (!placeholderActive && assemblyTextarea.value === '') {
-             assemblyTextarea.value = initialExampleCode; // Restore placeholder text
-             assemblyTextarea.classList.add('placeholder-active'); // Restore style
-             placeholderActive = true; // Allow clearing again on next focus
-        }
-        */
-
-        // Safety check: Ensure styling is correct based on content if blur happens
-        // without triggering the above commented block.
         if (assemblyTextarea.value !== initialExampleCode && assemblyTextarea.classList.contains('placeholder-active')){
              // If content is NOT the placeholder but style IS applied, remove style.
              assemblyTextarea.classList.remove('placeholder-active');
@@ -1106,9 +1095,6 @@ function setupEventListeners() {
             assemblyTextarea.classList.remove('placeholder-active'); // Remove placeholder styling
             placeholderActive = false; // Mark placeholder as inactive for focus events
         }
-        // Note: If the user deletes everything back to exactly match the initialExampleCode,
-        // the `placeholderActive` flag remains `false`. This prevents the `focus` event
-        // from clearing it again if they click back in.
     });
 
     // --- Event listener for the ASSEMBLE button ---
@@ -1173,15 +1159,29 @@ function setupEventListeners() {
 
     // --- Event listener for changing the RUN SPEED input ---
     DOMElements.runSpeedInput.addEventListener('change', () => {
-        let speed = parseInt(DOMElements.runSpeedInput.value);
-        // Validate and set a minimum speed
-        runSpeedMs = isNaN(speed) || speed < 10 ? 10 : speed;
-        DOMElements.runSpeedInput.value = runSpeedMs; // Update input field in case it was invalid
+        let speedInput = parseFloat(DOMElements.runSpeedInput.value);
+        let validatedSpeed;
 
-        // If the simulation is currently running, restart it with the new speed
+        // Validate the input: allow 0 or positive numbers
+        if (isNaN(speedInput) || speedInput < 0) { // Check for NaN or negative
+             logMessage(`Invalid speed input "${DOMElements.runSpeedInput.value}". Must be non-negative. Resetting input to 100ms.`, true);
+             validatedSpeed = 100; // Default if invalid
+             DOMElements.runSpeedInput.value = validatedSpeed; // Correct the input field visually
+        } else {
+             validatedSpeed = speedInput; // Keep the user's valid input (0 or positive)
+             // Input field already shows the valid number user entered
+        }
+
+        // Update the global runSpeedMs only AFTER validation
+        runSpeedMs = validatedSpeed;
+        logMessage(`Run speed setting changed to ${runSpeedMs}ms interval.`);
+        // --- MODIFIED SECTION END ---
+
+
+        // If simulation is running, restart it with the new speed
         if (runInterval !== null) {
             stopSimulation();
-            startSimulation();
+            startSimulation(); // startSimulation will now use the latest validated runSpeedMs
         }
     });
 }
@@ -1191,3 +1191,15 @@ document.addEventListener('DOMContentLoaded', () => {
     initializeSimulator();
     setupEventListeners(); // Attach listeners after init
 });
+
+// --- Make sure initializeSimulator is correctly defined ---
+function initializeSimulator() {
+    console.log("Initializing Simulator...");
+     // Populate GPR DOM element cache
+    for (let i = 0; i < 8; i++) {
+        DOMElements.gpr[i] = document.getElementById(`reg-r${i}`);
+    }
+    resetCPU(); // Set initial state and render UI
+    // Event listeners are added in setupEventListeners
+    console.log("Simulator Initialized.");
+}
