@@ -74,17 +74,14 @@ The PrediCore ISA is a simplified 16-bit architecture designed for education.
 ## 🛠️ Example Snippet
 
 ```assembly
-; Example: Conditional Increment using Predication
-; If R1 == 5, increment R0
+// Test Case 1: Simple Arithmetic
+            ORG 100H
+            LDA A         // AC = 10
+            ADD B         // AC = 10 + 5 = 15
+            STA C         // M[202h] = 15
+            HLT
 
-    MOV R1, R7, #5     ; R1 = 5
-    MOV R0, R7, #10    ; R0 = 10 (initial value)
-    MOV R2, R7, #5     ; R2 = 5 (value to compare against)
-    MOV R3, R7, #1     ; R3 = 1 (increment value)
-
-    CMP R1, R2         ; Compare R1 (5) with R2 (5). Sets Z=1.
-    SETP EQ, P0        ; Set P0 if Equal (Z=1). P0 becomes 1.
-
-    (P0) ADD R0, R0, R3 ; Execute if P0=1: R0 = R0 + R3 = 10 + 1 = 11
-
-    HLT                ; Check R0 value
+            ORG 200H
+            A,  DEC 10
+            B,  DEC 5
+            C,  HEX 0

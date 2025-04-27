@@ -3,110 +3,108 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/png" href="favicon.jpeg">
-    <title>PrediCore Simulator</title>
+    <title>Predicated Basic Computer Simulator</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500&family=Roboto+Mono&display=swap">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <header class="main-header">
-        <img src="favicon.jpeg" alt="Simulator Icon" id="header-icon"> <!-- Added icon -->
-        <h1>CE 222 Project Simulator</h1>
+    <header>
+        <h1>Predicated Basic Computer Simulator</h1>
     </header>
 
-    <div class="simulator-layout">
-
-        <div class="left-panel">
-            <h2>Assembly Code</h2>
-            <textarea id="assembly-code" rows="15">; --- Example Program: Add two numbers ---
-MOV R0, R7, #5 ; R0 = 5 (I-Type MOV)
-MOV R1, R7, #7     ; R1 = 7 (I-Type MOV)
-ADD R2, R0, #2     ; R2 = R0 + 2 = 7 (I-Type ADD)
-SUB R3, R1, #4     ; R3 = R1 - 4 = 3 (I-Type SUB)
-HLT</textarea>
-
-            <div class="controls">
-                <button id="assemble-button">Assemble & Load</button>
-                <button id="step-button">Step</button>
-                <button id="run-button">Run</button>
-                <button id="stop-button">Stop</button>
-                <button id="reset-button">Reset</button>
-                <label> Run Speed (ms): <input type="number" id="run-speed" value="100" min="10"></label>
+    <div class="container">
+        <div class="card controls">
+            <h2><i class="fas fa-code"></i> Code Editor</h2>
+            <textarea id="codeInput" rows="10" placeholder="Enter assembly code (e.g., LDA START, (P1) ADD VAL, SETP P1, AC>0, HLT). Use labels and comments (// or /)."></textarea>
+            <div class="button-group">
+                <button id="loadBtn"><i class="fas fa-upload"></i> Load Program</button>
+                <button id="stepBtn"><i class="fas fa-step-forward"></i> Step</button>
+                <button id="runBtn"><i class="fas fa-play"></i> Run</button>
+                <button id="resetBtn"><i class="fas fa-undo"></i> Reset</button>
             </div>
+            <div class="input-group">
+                <label for="runDelay"><i class="fas fa-stopwatch"></i> Run Delay (ms):</label>
+                <input type="number" id="runDelay" value="100" min="0">
+            </div>
+            <div id="status" class="status-idle"><div class="loader"></div>Status: Idle</div>
+        </div>
 
-            <h2>Messages / Errors</h2>
-            <pre id="message-area"></pre>
-
-            <h2>Memory-Mapped I/O</h2>
-            <div class="io-area">
-                <div class="io-input">
-                    <h3>Input (Port 0x1F0 - Read)</h3>
-                    <label>Value (0-65535): <input type="number" id="io-input-value" value="0" min="0" max="65535"></label>
-                    <button id="io-input-provide-button" style="display: none;">Provide Input</button>
-                     <span id="io-read-prompt" style="color: orange; display: none;">Waiting for input...</span>
+        <div class="card registers">
+            <h2><i class="fas fa-microchip"></i> Registers</h2>
+            <div class="registers-container">
+                <div class="register-group">
+                    <div class="register-group-header">CPU Registers</div>
+                    <table>
+                        <tbody>
+                            <tr><td>PC</td><td id="regPC_hex">000</td><td id="regPC_dec">0</td></tr>
+                            <tr><td>AR</td><td id="regAR_hex">000</td><td id="regAR_dec">0</td></tr>
+                            <tr><td>IR</td><td id="regIR_hex">0000</td><td id="regIR_dec">0</td></tr>
+                            <tr><td>AC</td><td id="regAC_hex">0000</td><td id="regAC_dec">0</td></tr>
+                            <tr><td>DR</td><td id="regDR_hex">0000</td><td id="regDR_dec">0</td></tr>
+                            <tr><td>TR</td><td id="regTR_hex">0000</td><td id="regTR_dec">0</td></tr>
+                            <tr><td>E</td><td id="regE_hex">0</td><td id="regE_dec">0</td></tr>
+                        </tbody>
+                    </table>
                 </div>
-                <div class="io-output">
-                    <h3>Output (Ports 0x1F1+)</h3>
-                    <pre id="io-output-area">--- Output Log ---</pre>
+                
+                <div class="register-group">
+                    <div class="register-group-header">Predicate Registers</div>
+                    <table>
+                        <tbody>
+                            <tr><td>P0</td><td id="regP0_hex">1</td><td id="regP0_dec">1</td></tr>
+                            <tr><td>P1</td><td id="regP1_hex">0</td><td id="regP1_dec">0</td></tr>
+                            <tr><td>P2</td><td id="regP2_hex">0</td><td id="regP2_dec">0</td></tr>
+                            <tr><td>P3</td><td id="regP3_hex">0</td><td id="regP3_dec">0</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div class="register-group">
+                    <div class="register-group-header">I/O Registers</div>
+                    <table>
+                        <tbody>
+                            <tr><td>FGI</td><td id="regFGI_hex">1</td><td id="regFGI_dec">1</td></tr>
+                            <tr><td>FGO</td><td id="regFGO_hex">1</td><td id="regFGO_dec">1</td></tr>
+                            <tr><td>INPR</td><td id="regINPR_hex">00</td><td id="regINPR_dec">0</td></tr>
+                            <tr><td>OUTR</td><td id="regOUTR_hex">00</td><td id="regOUTR_dec">0</td></tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
 
-        <!-- Middle Panel: CPU State -->
-        <div class="middle-panel">
-             <h2>CPU State</h2>
-            <div class="registers">
-                <h3>Special Registers</h3>
-                <div class="reg-grid">
-                    <span>PC:</span> <span id="reg-pc">0x000</span>
-                    <span>ACC:</span> <span id="reg-acc">0x0000</span>
-                    <span>AR:</span> <span id="reg-ar">0x000</span>
-                    <span>DR:</span> <span id="reg-dr">0x0000</span>
-                    <span>TR:</span> <span id="reg-tr">0x0000</span>
-                    <span>IR:</span> <span id="reg-ir">0x0000</span>
+        <div class="card io-section">
+            <h2><i class="fas fa-exchange-alt"></i> Input/Output</h2>
+            <div>
+                <label for="inputData">Input Data (ASCII):</label>
+                <div class="input-group">
+                    <input type="text" id="inputData" placeholder="Type input here">
+                    <button id="sendInputBtn"><i class="fas fa-paper-plane"></i> Send</button>
                 </div>
-
-                <h3>General Purpose Registers (GPRs)</h3>
-                <div class="reg-grid gpr-grid">
-                    <span>R0:</span> <span id="reg-r0">0x0000</span>
-                    <span>R1:</span> <span id="reg-r1">0x0000</span>
-                    <span>R2:</span> <span id="reg-r2">0x0000</span>
-                    <span>R3:</span> <span id="reg-r3">0x0000</span>
-                    <span>R4:</span> <span id="reg-r4">0x0000</span>
-                    <span>R5:</span> <span id="reg-r5">0x0000</span>
-                    <span>R6:</span> <span id="reg-r6">0x0000</span>
-                    <span>R7:</span> <span id="reg-r7">0x0000</span>
-                </div>
-
-                <h3>Status & Predicate Registers</h3>
-                <div class="flags-pfile">
-                    <div class="status-flags">
-                        <span>Flags:</span>
-                        <span id="flag-z">Z:0</span>
-                        <span id="flag-n">N:0</span>
-                        <span id="flag-c">C:0</span>
-                        <span id="flag-v">V:0</span>
-                    </div>
-                     <div class="p-file">
-                        <span>P-File:</span>
-                        <span id="pfile-p0">P0:0</span>
-                        <span id="pfile-p1">P1:0</span>
-                        <span id="pfile-p2">P2:0</span>
-                        <span id="pfile-p3">P3:0</span>
-                    </div>
-                </div>
+                <p>Next Char Code: <span id="nextInputCode" class="code-highlight">N/A</span></p>
             </div>
-             <div id="execution-status">Status: Idle</div>
-        </div>
-
-        <!-- Right Panel: Memory View -->
-        <div class="right-panel">
-             <h2>Memory (0x000 - 0x1FF)</h2>
-            <div id="memory-view">
+            <div>
+                <label for="outputData">Output Data (ASCII):</label>
+                <textarea id="outputData" rows="4" readonly></textarea>
             </div>
         </div>
 
-    </div> <!-- Closing simulator-layout -->
+        <div class="card memory">
+            <h2><i class="fas fa-memory"></i> Memory</h2>
+            <div class="memory-header">
+                <span>1024 words × 16 bits</span>
+                <div>
+                    <span class="memory-marker pc-marker">P</span> PC Location
+                    <span class="memory-marker ar-marker">A</span> AR Location
+                </div>
+            </div>
+            <div id="memoryView"></div>
+        </div>
+    </div>
 
-    <script src="script.js"></script>
+    <script src="assembler.js"></script>
+    <script src="simulator.js"></script>
+    <script src="memory-enhancer.js"></script>
 </body>
 </html>
