@@ -225,9 +225,8 @@ tbody tr:hover {
 
 /* Memory section enhancements */
 #memoryView {
-    height: auto;
-    max-height: 450px;
-    overflow-y: auto;
+    height: 450px; /* Use fixed height instead of max-height */
+    overflow-y: auto; /* Ensure vertical scrollbar appears when needed */
     font-family: 'Roboto Mono', monospace;
     white-space: pre;
     background-color: var(--bg-tertiary);
@@ -236,18 +235,20 @@ tbody tr:hover {
     border-radius: 4px;
     padding: 0;
     line-height: 1.4;
+    position: relative; /* Needed for sticky header positioning */
 }
 
 .memory-section {
-    border-top: 1px solid var(--border);
-    padding: 0.3rem 0;
+    /* Removed border-top, handled by header */
+    padding: 0; /* Adjusted padding */
 }
 
 .memory-section-header {
     position: sticky;
-    top: 0;
+    top: 0; /* Stick to the top of the #memoryView container */
+    z-index: 10; /* Ensure header stays above scrolling content */
     background-color: var(--bg-secondary);
-    padding: 0.5rem;
+    padding: 0.5rem 0.8rem; /* Match line padding */
     font-weight: 500;
     color: var(--accent);
     border-bottom: 1px solid var(--border);
@@ -259,10 +260,10 @@ tbody tr:hover {
 .memory-line {
     padding: 0.15rem 0.8rem;
     transition: background-color 0.2s;
-}
-
-.memory-line:hover {
-    background-color: rgba(255,255,255,0.05);
+    /* Ensure lines don't cause horizontal overflow if markers are wide */
+    display: block; 
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .memory-marker {
@@ -348,6 +349,32 @@ tbody tr:hover {
 #outputData {
     background-color: var(--bg-tertiary);
     font-family: 'Roboto Mono', monospace;
+}
+
+/* Error Display Section */
+#errorDisplay {
+    max-height: 150px; /* Adjust height as needed */
+    overflow-y: auto;
+    background-color: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.8rem;
+    font-family: 'Roboto Mono', monospace;
+    font-size: 0.9rem;
+    color: var(--error); /* Make error text stand out */
+    /* Removed border-left */
+}
+
+#errorDisplay .error-message {
+    margin-bottom: 0.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px dashed rgba(229, 115, 115, 0.3); /* Lighter separator */
+}
+
+#errorDisplay .error-message:last-child {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: none;
 }
 
 /* Scroll bars */

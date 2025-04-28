@@ -14,8 +14,13 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Now override the function
         updateMemoryUI = function() {
-            // Get current memory contents as plain text (original approach)
             let memHTML = '';
+            let scrollPos = 0; // Variable to store scroll position
+
+            // Store scroll position *before* modifying content
+            if (memoryView) {
+                scrollPos = memoryView.scrollTop;
+            }
             
             // Divide memory into sections (16 rows per section)
             const SECTION_SIZE = 64; // 64 words per section
@@ -62,14 +67,19 @@ document.addEventListener('DOMContentLoaded', function() {
             if (memoryView) {
                 memoryView.innerHTML = memHTML;
                 
-                // Scroll to active PC or AR location if it exists
+                // Restore scroll position *after* updating content
+                memoryView.scrollTop = scrollPos;
+
+                // Remove or comment out the automatic scrolling
+                /* 
                 const activeLine = document.querySelector('.pc-line') || document.querySelector('.ar-line');
                 if (activeLine) {
                     activeLine.scrollIntoView({
-                        behavior: 'smooth',
-                        block: 'center'
+                        behavior: 'smooth', // Changed to 'auto' or remove entirely
+                        block: 'nearest'    // Changed from 'center' to 'nearest' or remove
                     });
                 }
+                */
             }
         };
     }

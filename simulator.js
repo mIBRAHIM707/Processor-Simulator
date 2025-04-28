@@ -37,6 +37,7 @@ const inputData = document.getElementById('inputData');
 const sendInputBtn = document.getElementById('sendInputBtn');
 const nextInputCode = document.getElementById('nextInputCode');
 const outputData = document.getElementById('outputData');
+const errorDisplay = document.getElementById('errorDisplay');
 
 // --- Utility Functions ---
 
@@ -135,6 +136,8 @@ function reset() {
         runBtn.textContent = "Run"; // Ensure button resets
     }
     statusDiv.textContent = "Status: Reset";
+    errorDisplay.innerHTML = ''; // Clear errors
+    errorDisplay.style.display = 'none'; // Hide error display
     console.log("Memory reset, length:", memory.length);
     updateInputUI();
     updateRegistersUI();
@@ -146,6 +149,9 @@ function reset() {
 function loadProgram() {
     console.log("Load Program button clicked.");
     reset(); // Ensure clean state before loading
+    errorDisplay.innerHTML = ''; // Clear previous errors
+    errorDisplay.style.display = 'none'; // Hide error display
+
     const assemblyCode = codeInput.value;
     console.log("Attempting to assemble code...");
     const result = assemble(assemblyCode); // Use the assembler
@@ -170,8 +176,17 @@ function loadProgram() {
         console.warn("Assembly generated no machine code.");
         updateMemoryUI(); // Update UI to show empty memory
         updateRegistersUI();
-    } else {
+    } else { // Assembly failed
         console.error("Assembly failed.");
+        statusDiv.textContent = `Status: Assembly Failed (${result.errors.length} errors)`;
+        // Display errors in the dedicated section
+        errorDisplay.style.display = 'block'; // Show the error display
+        result.errors.forEach(err => {
+            const errElement = document.createElement('div');
+            errElement.classList.add('error-message');
+            errElement.textContent = err;
+            errorDisplay.appendChild(errElement);
+        });
         updateMemoryUI(); // Update UI to show empty memory after failed load
         updateRegistersUI();
     }
